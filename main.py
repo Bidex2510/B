@@ -9,6 +9,7 @@ from datetime import datetime
 from config.settings import settings
 from src.pipeline import run_pipeline
 from src.script_generator import NICHE_ROTATION, get_todays_niche
+from src.monitor import print_dashboard, get_history
 
 
 def daily_job():
@@ -52,11 +53,12 @@ def main():
     parser = argparse.ArgumentParser(description="TikTok AI Video Automation")
     parser.add_argument(
         "--mode",
-        choices=["once", "schedule", "test", "all-niches"],
+        choices=["once", "schedule", "test", "all-niches", "dashboard"],
         default="once",
         help=(
             "Run mode: 'once' = single video, 'schedule' = daily rotation, "
-            "'test' = no upload, 'all-niches' = generate all 5 niches at once"
+            "'test' = no upload, 'all-niches' = all 5 niches, "
+            "'dashboard' = view monitoring dashboard"
         ),
     )
     parser.add_argument(
@@ -72,6 +74,10 @@ def main():
         help="Skip TikTok upload (useful for testing with --mode all-niches)",
     )
     args = parser.parse_args()
+
+    if args.mode == "dashboard":
+        print_dashboard()
+        return
 
     if args.mode == "test":
         niche = args.niche or get_todays_niche()
