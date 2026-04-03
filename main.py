@@ -8,47 +8,89 @@ from datetime import datetime
 
 from config.settings import settings
 from src.pipeline import run_pipeline
+from src.script_generator import NICHE_ROTATION, get_todays_niche
 
 
 def daily_job():
-    """Run the video pipeline once."""
+    """Run the video pipeline with today's rotating niche."""
+    niche = get_todays_niche()
     print(f"\n{'='*50}")
-    print(f"Starting daily video generation at {datetime.now()}")
+    print(f"Daily video generation at {datetime.now()}")
+    print(f"Today's niche: {niche}")
     print(f"{'='*50}\n")
     try:
-        run_pipeline()
+        run_pipeline(niche=niche)
     except Exception as e:
-        print(f"ERROR: Pipeline failed: {e}")
+        print(f"ERROR: Pipeline failed for niche '{niche}': {e}")
         raise
+
+
+def run_all_niches(upload: bool = True):
+    """Generate and upload one video for each of the 5 niches."""
+    results = []
+    for niche in NICHE_ROTATION:
+        print(f"\n{'='*50}")
+        print(f"Generating video for niche: {niche}")
+        print(f"{'='*50}\n")
+        try:
+            path = run_pipeline(niche=niche, upload=upload)
+            results.append((niche, path, "success"))
+        except Exception as e:
+            print(f"ERROR: Pipeline failed for niche '{niche}': {e}")
+            results.append((niche, None, str(e)))
+
+    print(f"\n{'='*50}")
+    print("ALL NICHES SUMMARY")
+    print(f"{'='*50}")
+    for niche, path, status in results:
+        icon = "OK" if status == "success" else "FAIL"
+        print(f"  [{icon}] {niche}: {path or status}")
+    return results
 
 
 def main():
     parser = argparse.ArgumentParser(description="TikTok AI Video Automation")
     parser.add_argument(
         "--mode",
-        choices=["once", "schedule", "test"],
+        choices=["once", "schedule", "test", "all-niches"],
         default="once",
-        help="Run mode: 'once' for single run, 'schedule' for daily, 'test' for no upload",
+        help=(
+            "Run mode: 'once' = single video, 'schedule' = daily rotation, "
+            "'test' = no upload, 'all-niches' = generate all 5 niches at once"
+        ),
     )
     parser.add_argument(
         "--niche",
         type=str,
         default=None,
-        help="Video niche (motivational, facts, tech, finance, scary)",
+        help="Video niche (motivational, facts, tech, finance, scary). "
+             "If omitted, auto-rotates based on day of year.",
+    )
+    parser.add_argument(
+        "--no-upload",
+        action="store_true",
+        help="Skip TikTok upload (useful for testing with --mode all-niches)",
     )
     args = parser.parse_args()
 
     if args.mode == "test":
-        print("Running in TEST mode (no upload)...")
-        run_pipeline(niche=args.niche, upload=False)
+        niche = args.niche or get_todays_niche()
+        print(f"Running in TEST mode (no upload), niche: {niche}")
+        run_pipeline(niche=niche, upload=False)
 
     elif args.mode == "once":
-        print("Running single video generation + upload...")
-        run_pipeline(niche=args.niche, upload=True)
+        niche = args.niche or get_todays_niche()
+        print(f"Running single video, niche: {niche}")
+        run_pipeline(niche=niche, upload=not args.no_upload)
+
+    elif args.mode == "all-niches":
+        print("Running ALL 5 niches: " + ", ".join(NICHE_ROTATION))
+        run_all_niches(upload=not args.no_upload)
 
     elif args.mode == "schedule":
         post_time = f"{settings.POSTING_HOUR:02d}:{settings.POSTING_MINUTE:02d}"
         print(f"Scheduling daily video at {post_time} ({settings.TIMEZONE})")
+        print(f"Niche rotation order: {' -> '.join(NICHE_ROTATION)}")
         schedule.every().day.at(post_time).do(daily_job)
 
         # Run immediately on first start

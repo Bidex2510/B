@@ -2,6 +2,7 @@
 
 import json
 import random
+from datetime import datetime
 from openai import OpenAI
 from config.settings import settings
 
@@ -28,10 +29,19 @@ NICHES = {
     },
 }
 
+# Ordered list for daily rotation
+NICHE_ROTATION = ["motivational", "facts", "tech", "finance", "scary"]
+
+
+def get_todays_niche() -> str:
+    """Get today's niche based on day-of-year rotation through all 5 niches."""
+    day_of_year = datetime.now().timetuple().tm_yday
+    return NICHE_ROTATION[day_of_year % len(NICHE_ROTATION)]
+
 
 def generate_script(niche: str = None) -> dict:
     """Generate a video script with title, narration, and image prompts."""
-    niche = niche or settings.VIDEO_NICHE
+    niche = niche or get_todays_niche()
     niche_config = NICHES.get(niche, NICHES["motivational"])
     theme = random.choice(niche_config["themes"])
 
