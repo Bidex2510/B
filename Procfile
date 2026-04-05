@@ -1,0 +1,1 @@
+web: gunicorn jarvis.api.server:app --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT --workers 2 --timeout 120

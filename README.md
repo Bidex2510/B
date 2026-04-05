@@ -135,9 +135,58 @@ run_server.py              # Web server launcher
 .env.example               # API key template
 ```
 
+## Deployment - Access From Anywhere
+
+### Option 1: Local Network (easiest)
+```bash
+./deploy.sh local
+# Open http://your-computer-ip:8000 from any device on your WiFi
+```
+
+### Option 2: ngrok Tunnel (instant public URL)
+```bash
+# Install ngrok: https://ngrok.com/download
+./deploy.sh ngrok
+# Gives you a public URL like https://abc123.ngrok.io
+# Share this URL — access Jarvis from anywhere in the world
+```
+
+### Option 3: Docker
+```bash
+./deploy.sh docker
+# Or manually:
+docker compose up --build
+```
+
+### Option 4: Render (free cloud hosting)
+1. Push this repo to GitHub
+2. Go to [render.com](https://render.com) and connect your repo
+3. Render auto-detects `render.yaml` and deploys
+4. Add your API keys in the Render dashboard under Environment
+5. Get a free URL like `https://jarvis-ai.onrender.com`
+
+### Option 5: Railway (free cloud hosting)
+1. Go to [railway.app](https://railway.app)
+2. Click "New Project" > "Deploy from GitHub"
+3. Select this repo — Railway auto-detects `railway.json`
+4. Add env vars in the Railway dashboard
+5. Get a public URL automatically
+
+### Option 6: Heroku
+```bash
+heroku create jarvis-ai
+heroku config:set ANTHROPIC_API_KEY=your_key_here
+git push heroku main
+```
+
+### Stop Jarvis
+```bash
+./deploy.sh stop
+```
+
 ## Setup API Keys
 
-All integrations work in **graceful degradation** mode - Jarvis runs without any API keys and enables features as you add them.
+All integrations work in **graceful degradation** mode — Jarvis runs without any API keys and enables features as you add them.
 
 1. Copy `.env.example` to `.env`
 2. Add your API keys (all are free tier):
