@@ -1,0 +1,10 @@
+# Jarvis AI Assistant
+# Core dependencies (stdlib only for v1.0)
+# No external dependencies required - runs on Python 3.7+ standard library
+
+# Optional dependencies for future enhancements:
+# speech-recognition    # Voice input
+# pyttsx3              # Text-to-speech output
+# requests             # Live web search
+# openai               # LLM-powered conversations
+# python-dotenv        # Environment variable management
