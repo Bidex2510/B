@@ -1,0 +1,22 @@
+# Jarvis AI Assistant v2.0
+# Install: pip install -r requirements.txt
+
+# Web Framework
+fastapi==0.115.0
+uvicorn[standard]==0.30.0
+jinja2==3.1.4
+
+# HTTP Client (for API calls)
+httpx==0.27.0
+
+# AI Conversations
+anthropic==0.39.0
+
+# Environment variables
+python-dotenv==1.0.1
+
+# Data validation (included with FastAPI)
+pydantic==2.9.0
+
+# Production server
+gunicorn==22.0.0
