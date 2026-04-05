@@ -1,10 +1,19 @@
-# Jarvis AI Assistant
-# Core dependencies (stdlib only for v1.0)
-# No external dependencies required - runs on Python 3.7+ standard library
+# Jarvis AI Assistant v2.0
+# Install: pip install -r requirements.txt
 
-# Optional dependencies for future enhancements:
-# speech-recognition    # Voice input
-# pyttsx3              # Text-to-speech output
-# requests             # Live web search
-# openai               # LLM-powered conversations
-# python-dotenv        # Environment variable management
+# Web Framework
+fastapi==0.115.0
+uvicorn[standard]==0.30.0
+jinja2==3.1.4
+
+# HTTP Client (for API calls)
+httpx==0.27.0
+
+# AI Conversations
+anthropic==0.39.0
+
+# Environment variables
+python-dotenv==1.0.1
+
+# Data validation (included with FastAPI)
+pydantic==2.9.0

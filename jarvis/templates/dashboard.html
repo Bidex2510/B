@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JARVIS - Personal AI Assistant</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="jarvis-container">
+        <!-- Header -->
+        <header class="jarvis-header">
+            <div class="arc-reactor"></div>
+            <h1>J.A.R.V.I.S.</h1>
+            <p class="subtitle">Just A Rather Very Intelligent System</p>
+            <div class="status-bar">
+                <span class="status-dot"></span>
+                <span id="status-text">All Systems Online</span>
+            </div>
+        </header>
+
+        <!-- Quick Actions -->
+        <div class="quick-actions">
+            <button onclick="getWeather()" class="action-btn">Weather</button>
+            <button onclick="getNews()" class="action-btn">News</button>
+            <button onclick="getSystemStatus()" class="action-btn">System</button>
+            <button onclick="getQuote()" class="action-btn">Quote</button>
+            <button onclick="showSchedule()" class="action-btn">Schedule</button>
+            <button onclick="showBudget()" class="action-btn">Budget</button>
+            <button onclick="startPomodoro()" class="action-btn pomodoro-btn">Pomodoro</button>
+            <button onclick="showGPA()" class="action-btn">GPA Calc</button>
+        </div>
+
+        <!-- Main Chat Interface -->
+        <div class="chat-container">
+            <div id="chat-messages" class="chat-messages">
+                <div class="message jarvis-msg">
+                    <span class="sender">JARVIS</span>
+                    <p>Good day, sir. All systems are operational. How may I assist you today?</p>
+                    <p class="hint">Try: "What's the weather?", "Show my tasks", "Calculate 42 * 13", or just ask me anything.</p>
+                </div>
+            </div>
+            <div class="chat-input-container">
+                <input type="text" id="chat-input" placeholder="Ask Jarvis anything..."
+                       onkeypress="if(event.key==='Enter')sendMessage()">
+                <button onclick="sendMessage()" class="send-btn">Send</button>
+            </div>
+        </div>
+
+        <!-- Info Panels -->
+        <div class="panels-grid">
+            <!-- Weather Panel -->
+            <div class="panel" id="weather-panel">
+                <h3>Weather</h3>
+                <div id="weather-content">
+                    <p class="panel-placeholder">Click "Weather" to load</p>
+                </div>
+            </div>
+
+            <!-- Tasks Panel -->
+            <div class="panel" id="tasks-panel">
+                <h3>Tasks</h3>
+                <div class="task-input-row">
+                    <input type="text" id="task-input" placeholder="Add a task..."
+                           onkeypress="if(event.key==='Enter')addTask()">
+                    <button onclick="addTask()" class="small-btn">+</button>
+                </div>
+                <div id="tasks-content">
+                    <p class="panel-placeholder">Loading tasks...</p>
+                </div>
+            </div>
+
+            <!-- Study Panel -->
+            <div class="panel" id="study-panel">
+                <h3>Study Tools</h3>
+                <div id="study-content">
+                    <div class="study-tools">
+                        <div class="pomodoro-display" id="pomodoro-display">
+                            <span class="timer-icon">⏱</span>
+                            <span id="pomodoro-status">Ready to focus</span>
+                        </div>
+                        <div class="dict-search">
+                            <input type="text" id="dict-input" placeholder="Look up a word..."
+                                   onkeypress="if(event.key==='Enter')lookupWord()">
+                            <button onclick="lookupWord()" class="small-btn">?</button>
+                        </div>
+                        <div id="dict-result"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Finance Panel -->
+            <div class="panel" id="finance-panel">
+                <h3>Budget Tracker</h3>
+                <div class="expense-input-row">
+                    <input type="number" id="expense-amount" placeholder="$" step="0.01" style="width:70px">
+                    <select id="expense-category">
+                        <option value="food">Food</option>
+                        <option value="transport">Transport</option>
+                        <option value="entertainment">Fun</option>
+                        <option value="books">Books</option>
+                        <option value="rent">Rent</option>
+                        <option value="other">Other</option>
+                    </select>
+                    <button onclick="addExpense()" class="small-btn">+</button>
+                </div>
+                <div id="finance-content">
+                    <p class="panel-placeholder">Track your spending</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <footer class="jarvis-footer">
+            <p>Jarvis AI Assistant v2.0 | <a href="/docs" target="_blank">API Docs</a> | Built with FastAPI</p>
+        </footer>
+    </div>
+
+    <script src="/static/js/jarvis.js"></script>
+</body>
+</html>
