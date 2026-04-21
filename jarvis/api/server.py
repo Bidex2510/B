@@ -9,7 +9,7 @@ from pathlib import Path
 from jarvis.core.assistant import Jarvis
 from jarvis.api.routes import (
     chat, weather, email, news, spotify, home_assistant,
-    ai, study, finance, utilities, system,
+    ai, study, finance, utilities, system, notes,
 )
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -47,6 +47,13 @@ app.include_router(study.router, prefix="/api/study", tags=["Study Tools"])
 app.include_router(finance.router, prefix="/api/finance", tags=["Finance"])
 app.include_router(utilities.router, prefix="/api/utils", tags=["Utilities"])
 app.include_router(system.router, prefix="/api/system", tags=["System"])
+app.include_router(notes.router, prefix="/api/notes", tags=["Class Notes"])
+
+
+@app.get("/notes")
+async def notes_page(request: Request):
+    """Serve the class note-taking page."""
+    return templates.TemplateResponse("notes.html", {"request": request})
 
 
 @app.get("/")
