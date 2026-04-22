@@ -7,15 +7,19 @@ Safety limits (all overridable via environment variables):
   DAILY_MAX_LOSS_PCT Circuit breaker: freeze bot if portfolio drops by this today (default -2%)
   MAX_DAILY_TRADES   Hard cap on trades per calendar day (default 10)
 
+Pattern Day Trader (PDT) protection:
+  PDT_ACCOUNT_EQUITY  Your Robinhood account equity (default 0 = protection active)
+  If equity < $25,000, blocks any 4th+ day trade in a 5-business-day window.
+
 Kill switch:
-  call freeze() to instantly stop new trades
-  call unfreeze() to resume
+  freeze() / unfreeze() – instant stop / resume of all new trades
 """
 
+import logging
 import os
 import threading
-import logging
-from datetime import date
+from collections import deque
+from datetime import date, datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
@@ -25,18 +29,24 @@ def _pct(env_key: str, default: float) -> float:
 
 
 class RiskManager:
+    PDT_EQUITY_THRESHOLD = 25_000.0
+    PDT_MAX_DAY_TRADES_5D = 3
+
     def __init__(self):
         self.MAX_POSITION_PCT = _pct("RISK_MAX_POSITION_PCT", 0.05)
         self.STOP_LOSS_PCT = _pct("RISK_STOP_LOSS_PCT", -0.02)
         self.TRAILING_STOP_PCT = _pct("RISK_TRAILING_STOP_PCT", -0.03)
         self.DAILY_MAX_LOSS_PCT = _pct("RISK_DAILY_MAX_LOSS_PCT", -0.02)
         self.MAX_DAILY_TRADES = int(os.getenv("RISK_MAX_DAILY_TRADES", "10"))
+        self.ACCOUNT_EQUITY = _pct("PDT_ACCOUNT_EQUITY", 0.0)
 
         self._frozen = threading.Event()
         self._session_start_value: float = 0.0
         self._position_peaks: dict[str, float] = {}
         self._daily_trades: int = 0
         self._trade_date: date = date.today()
+        # timestamps of buy+sell-same-day "day trades" for PDT tracking
+        self._day_trade_log: deque[datetime] = deque()
 
     # ------------------------------------------------------------------
     # Kill switch
@@ -70,7 +80,6 @@ class RiskManager:
         if self._frozen.is_set():
             return True
 
-        # Reset daily counter on new trading day
         today = date.today()
         if today != self._trade_date:
             self._daily_trades = 0
@@ -97,7 +106,6 @@ class RiskManager:
     # ------------------------------------------------------------------
 
     def position_size(self, portfolio_value: float, price: float) -> int:
-        """Number of shares to buy respecting the max-position limit."""
         max_spend = portfolio_value * self.MAX_POSITION_PCT
         shares = int(max_spend / price)
         return max(1, shares)
@@ -109,8 +117,6 @@ class RiskManager:
     def should_stop_loss(
         self, symbol: str, current_price: float, avg_buy_price: float
     ) -> bool:
-        """Returns True if the position should be exited for risk reasons."""
-        # Hard stop-loss from cost basis
         pct_change = (current_price - avg_buy_price) / avg_buy_price
         if pct_change < self.STOP_LOSS_PCT:
             logger.info(
@@ -119,7 +125,6 @@ class RiskManager:
             )
             return True
 
-        # Trailing stop from highest price since purchase
         peak = self._position_peaks.get(symbol, avg_buy_price)
         if current_price > peak:
             self._position_peaks[symbol] = current_price
@@ -133,6 +138,31 @@ class RiskManager:
                 return True
 
         return False
+
+    # ------------------------------------------------------------------
+    # Pattern Day Trader (PDT) protection
+    # ------------------------------------------------------------------
+
+    def pdt_would_block(self) -> bool:
+        """Return True if taking another day trade now would trip PDT rules."""
+        if self.ACCOUNT_EQUITY >= self.PDT_EQUITY_THRESHOLD:
+            return False
+        self._prune_day_trade_log()
+        return len(self._day_trade_log) >= self.PDT_MAX_DAY_TRADES_5D
+
+    def record_day_trade(self) -> None:
+        """Call this when a buy+sell-same-day cycle closes."""
+        self._day_trade_log.append(datetime.now())
+        self._prune_day_trade_log()
+
+    def pdt_trades_in_window(self) -> int:
+        self._prune_day_trade_log()
+        return len(self._day_trade_log)
+
+    def _prune_day_trade_log(self) -> None:
+        cutoff = datetime.now() - timedelta(days=5)
+        while self._day_trade_log and self._day_trade_log[0] < cutoff:
+            self._day_trade_log.popleft()
 
     # ------------------------------------------------------------------
     # Trade accounting
@@ -154,4 +184,6 @@ class RiskManager:
             "daily_trades": self._daily_trades,
             "max_daily_trades": self.MAX_DAILY_TRADES,
             "session_start_value": self._session_start_value,
+            "pdt_trades_5d": self.pdt_trades_in_window(),
+            "pdt_active": self.ACCOUNT_EQUITY < self.PDT_EQUITY_THRESHOLD,
         }
