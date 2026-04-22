@@ -143,6 +143,60 @@
                 </div>
             </div>
         </div>
+
+        <!-- Full-width AI Chat -->
+        <div class="panel chat-panel" id="chat-panel">
+            <div class="panel-header-row">
+                <div class="chat-header-left">
+                    <h3>Ask About Your Lecture</h3>
+                    <span class="chat-context-badge" id="chat-context-badge">No context yet</span>
+                </div>
+                <button class="icon-btn" onclick="clearChat()">✕ Clear chat</button>
+            </div>
+
+            <!-- Quick Suggestion Chips -->
+            <div class="chat-suggestions" id="chat-suggestions">
+                <button class="chip" onclick="sendSuggestion('Summarize the most important concepts from this lecture')">Summarize key concepts</button>
+                <button class="chip" onclick="sendSuggestion('Quiz me with 5 multiple-choice questions based on this lecture')">Quiz me</button>
+                <button class="chip" onclick="sendSuggestion('What are the action items or homework from this lecture?')">What\'s my homework?</button>
+                <button class="chip" onclick="sendSuggestion('Explain the hardest concept in this lecture in simple terms')">Simplify hardest concept</button>
+                <button class="chip" onclick="sendSuggestion('Create a study guide I can review before an exam on this material')">Make a study guide</button>
+                <button class="chip" onclick="sendSuggestion('What questions might appear on an exam about this lecture?')">Likely exam questions</button>
+            </div>
+
+            <!-- Messages -->
+            <div class="chat-messages" id="chat-messages">
+                <div class="chat-bubble assistant-bubble">
+                    <div class="bubble-avatar">J</div>
+                    <div class="bubble-body">
+                        Hello! I'm your study assistant. Record a lecture and generate notes, then ask me anything — I'll explain concepts, quiz you, help with homework, or create a study guide.
+                    </div>
+                </div>
+            </div>
+
+            <!-- Typing indicator -->
+            <div class="typing-indicator hidden" id="typing-indicator">
+                <div class="bubble-avatar">J</div>
+                <div class="typing-dots"><span></span><span></span><span></span></div>
+            </div>
+
+            <!-- Input -->
+            <div class="chat-input-row">
+                <textarea
+                    id="chat-input"
+                    class="chat-input"
+                    placeholder="Ask anything about your lecture…"
+                    rows="1"
+                    onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChat();}"
+                    oninput="autoResize(this)"
+                ></textarea>
+                <button class="chat-send-btn" onclick="sendChat()" id="chat-send-btn">
+                    ➤
+                </button>
+            </div>
+            <p class="chat-hint">Enter to send · Shift+Enter for new line</p>
+        </div>
+
     </div>
 
     <script>
@@ -522,8 +576,144 @@
             .replace(/<p><\/p>/g, "");
     }
 
+    // ─── Chat ─────────────────────────────────────────────────────────────
+    let chatHistory = [];
+    let chatBusy = false;
+
+    function getChatContext() {
+        return {
+            subject: document.getElementById("subject-input").value.trim() || "General",
+            session_name: document.getElementById("session-input").value.trim(),
+            transcript: transcript.trim(),
+            notes: currentNotes?.notes || "",
+            key_points: currentNotes?.key_points || [],
+            action_items: currentNotes?.action_items || [],
+        };
+    }
+
+    function updateChatContextBadge() {
+        const badge = document.getElementById("chat-context-badge");
+        const ctx = getChatContext();
+        if (ctx.notes) {
+            badge.textContent = `Context: ${ctx.subject} notes loaded`;
+            badge.classList.add("has-context");
+        } else if (ctx.transcript) {
+            badge.textContent = `Context: transcript only (generate notes for full context)`;
+            badge.classList.remove("has-context");
+        } else {
+            badge.textContent = "No context yet — record a lecture first";
+            badge.classList.remove("has-context");
+        }
+    }
+
+    async function sendChat() {
+        if (chatBusy) return;
+        const input = document.getElementById("chat-input");
+        const message = input.value.trim();
+        if (!message) return;
+
+        input.value = "";
+        autoResize(input);
+        appendBubble("user", message);
+        chatHistory.push({ role: "user", content: message });
+
+        chatBusy = true;
+        document.getElementById("chat-send-btn").disabled = true;
+        document.getElementById("typing-indicator").classList.remove("hidden");
+        scrollChat();
+
+        try {
+            const ctx = getChatContext();
+            const res = await fetch("/api/notes/chat", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    message,
+                    history: chatHistory.slice(0, -1), // exclude the message we just added
+                    ...ctx,
+                }),
+            });
+            const data = await res.json();
+
+            document.getElementById("typing-indicator").classList.add("hidden");
+
+            if (data.status === "error") {
+                appendBubble("assistant", `Sorry, I hit an error: ${data.message}`);
+            } else if (data.status === "config_needed") {
+                appendBubble("assistant", data.response);
+            } else {
+                const reply = data.response;
+                chatHistory.push({ role: "assistant", content: reply });
+                appendBubble("assistant", reply);
+            }
+        } catch (err) {
+            document.getElementById("typing-indicator").classList.add("hidden");
+            appendBubble("assistant", `Network error: ${err.message}`);
+        } finally {
+            chatBusy = false;
+            document.getElementById("chat-send-btn").disabled = false;
+            scrollChat();
+        }
+    }
+
+    function sendSuggestion(text) {
+        document.getElementById("chat-input").value = text;
+        sendChat();
+    }
+
+    function appendBubble(role, text) {
+        const container = document.getElementById("chat-messages");
+        const div = document.createElement("div");
+        div.className = `chat-bubble ${role === "user" ? "user-bubble" : "assistant-bubble"}`;
+
+        const avatar = document.createElement("div");
+        avatar.className = "bubble-avatar";
+        avatar.textContent = role === "user" ? "U" : "J";
+
+        const body = document.createElement("div");
+        body.className = "bubble-body";
+        body.innerHTML = role === "assistant" ? markdownToHtml(text) : escHtml(text);
+
+        if (role === "user") {
+            div.appendChild(body);
+            div.appendChild(avatar);
+        } else {
+            div.appendChild(avatar);
+            div.appendChild(body);
+        }
+        container.appendChild(div);
+        scrollChat();
+    }
+
+    function scrollChat() {
+        const c = document.getElementById("chat-messages");
+        c.scrollTop = c.scrollHeight;
+    }
+
+    function clearChat() {
+        chatHistory = [];
+        document.getElementById("chat-messages").innerHTML = `
+            <div class="chat-bubble assistant-bubble">
+                <div class="bubble-avatar">J</div>
+                <div class="bubble-body">Chat cleared. Ask me anything about your lecture!</div>
+            </div>`;
+    }
+
+    function autoResize(el) {
+        el.style.height = "auto";
+        el.style.height = Math.min(el.scrollHeight, 160) + "px";
+    }
+
+    // Keep context badge in sync whenever notes are generated or session loaded
+    const _origRenderNotes = renderNotes;
+    function renderNotes(data) {
+        _origRenderNotes(data);
+        updateChatContextBadge();
+    }
+
     // ─── Init ─────────────────────────────────────────────────────────────
     loadSessions();
+    updateChatContextBadge();
     </script>
 </body>
 </html>

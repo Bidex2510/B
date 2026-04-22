@@ -29,6 +29,22 @@ class SaveNoteRequest(BaseModel):
     action_items: list[str]
 
 
+class ChatMessage(BaseModel):
+    role: str   # "user" or "assistant"
+    content: str
+
+
+class ChatRequest(BaseModel):
+    message: str
+    subject: str = "General"
+    session_name: str = ""
+    transcript: str = ""
+    notes: str = ""
+    key_points: list[str] = []
+    action_items: list[str] = []
+    history: list[ChatMessage] = []
+
+
 @router.post("/generate")
 async def generate_notes(req: TranscriptRequest):
     """Send lecture transcript to Claude and get back structured notes."""
@@ -160,6 +176,78 @@ async def get_session(filename: str):
         return {"status": "error", "message": "Session not found."}
     try:
         return {"status": "ok", "data": json.loads(path.read_text())}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@router.post("/chat")
+async def chat(req: ChatRequest):
+    """Multi-turn AI conversation grounded in the current lecture transcript and notes."""
+    if not req.message.strip():
+        return {"status": "error", "message": "Message is empty."}
+
+    if not API_KEY:
+        return {
+            "status": "config_needed",
+            "response": "Set ANTHROPIC_API_KEY in your .env file to enable AI chat.",
+        }
+
+    try:
+        import anthropic
+
+        client = anthropic.Anthropic(api_key=API_KEY)
+
+        # Build rich system prompt with all available context
+        context_parts = [
+            "You are a smart, friendly study assistant embedded in a class note-taking app.",
+            "You help students understand their lectures, quiz themselves, and explore ideas deeply.",
+            "Be conversational, encouraging, and thorough. Use examples, analogies, and structured",
+            "answers when helpful. If the student asks a question not covered in the transcript,",
+            "answer from your general knowledge but note that it wasn't in today's lecture.",
+        ]
+
+        if req.subject and req.subject != "General":
+            context_parts.append(f"\nCurrent subject: {req.subject}")
+        if req.session_name:
+            context_parts.append(f"Session: {req.session_name}")
+
+        if req.transcript.strip():
+            context_parts.append(f"\n--- LECTURE TRANSCRIPT ---\n{req.transcript.strip()}\n---")
+
+        if req.notes.strip():
+            context_parts.append(f"\n--- GENERATED NOTES ---\n{req.notes.strip()}\n---")
+
+        if req.key_points:
+            context_parts.append(
+                "\n--- KEY POINTS ---\n" + "\n".join(f"• {p}" for p in req.key_points) + "\n---"
+            )
+
+        if req.action_items:
+            context_parts.append(
+                "\n--- ACTION ITEMS ---\n" + "\n".join(f"• {a}" for a in req.action_items) + "\n---"
+            )
+
+        system_prompt = "\n".join(context_parts)
+
+        # Build message history (cap at last 20 turns to stay within token limits)
+        messages = [
+            {"role": m.role, "content": m.content}
+            for m in req.history[-20:]
+        ]
+        messages.append({"role": "user", "content": req.message})
+
+        response = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=1024,
+            system=system_prompt,
+            messages=messages,
+        )
+
+        return {
+            "status": "ok",
+            "response": response.content[0].text,
+        }
+
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
