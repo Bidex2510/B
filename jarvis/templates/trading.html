@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Trading Bot Dashboard</title>
+  <style>
+    :root {
+      --bg: #0b0f18;
+      --panel: #151b29;
+      --panel-hover: #1c2436;
+      --line: #252f44;
+      --text: #e6ecf5;
+      --muted: #8892a6;
+      --green: #34d399;
+      --red: #f87171;
+      --yellow: #fbbf24;
+      --blue: #60a5fa;
+      --accent: #22d3ee;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding: 20px;
+      min-height: 100vh;
+    }
+    .container { max-width: 1200px; margin: 0 auto; }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 24px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--line);
+    }
+    h1 { font-size: 24px; font-weight: 600; color: var(--accent); }
+    h1 span { color: var(--muted); font-weight: 400; font-size: 14px; margin-left: 8px; }
+    .badges { display: flex; gap: 8px; }
+    .badge {
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .badge-running { background: rgba(52, 211, 153, 0.15); color: var(--green); border: 1px solid var(--green); }
+    .badge-stopped { background: rgba(248, 113, 113, 0.15); color: var(--red); border: 1px solid var(--red); }
+    .badge-frozen { background: rgba(251, 191, 36, 0.15); color: var(--yellow); border: 1px solid var(--yellow); }
+    .badge-mode-paper { background: rgba(96, 165, 250, 0.15); color: var(--blue); border: 1px solid var(--blue); }
+    .badge-mode-live { background: rgba(248, 113, 113, 0.15); color: var(--red); border: 1px solid var(--red); }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .stat {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 16px;
+    }
+    .stat-label {
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+    }
+    .stat-value { font-size: 22px; font-weight: 600; }
+    .stat-value.green { color: var(--green); }
+    .stat-value.red { color: var(--red); }
+
+    .controls {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+    }
+    .btn {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.1s, opacity 0.2s;
+    }
+    .btn:hover { transform: translateY(-1px); opacity: 0.9; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+    .btn-start { background: var(--green); color: #052e20; }
+    .btn-stop { background: var(--red); color: #2e0505; }
+    .btn-freeze { background: var(--yellow); color: #2e1f05; }
+    .btn-unfreeze { background: var(--blue); color: #05162e; }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    .panel-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 16px;
+    }
+
+    .strategies { display: flex; flex-wrap: wrap; gap: 8px; }
+    .strategy-chip {
+      padding: 6px 12px;
+      background: var(--panel-hover);
+      border: 1px solid var(--accent);
+      color: var(--accent);
+      border-radius: 16px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    table { width: 100%; border-collapse: collapse; }
+    thead { border-bottom: 1px solid var(--line); }
+    th {
+      text-align: left;
+      padding: 10px 8px;
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    td {
+      padding: 12px 8px;
+      border-bottom: 1px solid var(--line);
+      font-size: 14px;
+    }
+    td.sym { font-weight: 600; }
+    td.green { color: var(--green); }
+    td.red { color: var(--red); }
+    .empty {
+      text-align: center;
+      color: var(--muted);
+      padding: 24px;
+      font-style: italic;
+    }
+
+    .toast {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background: var(--panel);
+      border: 1px solid var(--accent);
+      color: var(--text);
+      padding: 12px 18px;
+      border-radius: 8px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+      opacity: 0;
+      transition: opacity 0.3s;
+      max-width: 400px;
+    }
+    .toast.show { opacity: 1; }
+
+    .footer {
+      text-align: center;
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 32px;
+      padding-top: 16px;
+      border-top: 1px solid var(--line);
+    }
+    .footer a { color: var(--accent); text-decoration: none; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Trading Bot <span id="last-update">—</span></h1>
+      <div class="badges">
+        <span id="status-badge" class="badge badge-stopped">STOPPED</span>
+        <span id="mode-badge" class="badge badge-mode-paper">PAPER</span>
+      </div>
+    </header>
+
+    <div class="stats-grid">
+      <div class="stat">
+        <div class="stat-label">Portfolio Value</div>
+        <div class="stat-value" id="portfolio-value">—</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Buying Power</div>
+        <div class="stat-value" id="buying-power">—</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Open Positions</div>
+        <div class="stat-value" id="position-count">—</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Trades Today</div>
+        <div class="stat-value" id="trades-today">—</div>
+      </div>
+    </div>
+
+    <div class="controls">
+      <button id="start-btn" class="btn btn-start" onclick="callAction('start')">Start Bot</button>
+      <button id="stop-btn" class="btn btn-stop" onclick="callAction('stop')">Stop Bot</button>
+      <button id="freeze-btn" class="btn btn-freeze" onclick="callAction('freeze')">Freeze (Kill Switch)</button>
+      <button id="unfreeze-btn" class="btn btn-unfreeze" onclick="callAction('unfreeze')">Unfreeze</button>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">Active Strategies</div>
+      <div id="strategies" class="strategies"></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">Open Positions</div>
+      <table>
+        <thead>
+          <tr>
+            <th>Symbol</th>
+            <th>Strategy</th>
+            <th>Shares</th>
+            <th>Avg Cost</th>
+            <th>Price</th>
+            <th>P&amp;L $</th>
+            <th>P&amp;L %</th>
+          </tr>
+        </thead>
+        <tbody id="positions-body"></tbody>
+      </table>
+    </div>
+
+    <div class="footer">
+      Auto-refreshes every 5 seconds &middot; <a href="/">Main Dashboard</a> &middot; <a href="/docs">API Docs</a>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script>
+    const API = '/api/trading';
+
+    async function refresh() {
+      try {
+        const res = await fetch(API + '/status');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        render(await res.json());
+      } catch (err) {
+        showToast('Connection lost: ' + err.message);
+      }
+    }
+
+    function render(s) {
+      const statusBadge = document.getElementById('status-badge');
+      if (s.frozen) {
+        statusBadge.textContent = 'FROZEN';
+        statusBadge.className = 'badge badge-frozen';
+      } else if (s.running) {
+        statusBadge.textContent = 'RUNNING';
+        statusBadge.className = 'badge badge-running';
+      } else {
+        statusBadge.textContent = 'STOPPED';
+        statusBadge.className = 'badge badge-stopped';
+      }
+
+      const modeBadge = document.getElementById('mode-badge');
+      modeBadge.textContent = s.mode;
+      modeBadge.className = 'badge ' + (s.mode === 'LIVE' ? 'badge-mode-live' : 'badge-mode-paper');
+
+      document.getElementById('portfolio-value').textContent = fmtMoney(s.portfolio_value);
+      document.getElementById('buying-power').textContent = fmtMoney(s.buying_power);
+      document.getElementById('position-count').textContent = s.positions.length;
+
+      if (s.stats && s.stats.max_daily_trades !== undefined) {
+        document.getElementById('trades-today').textContent =
+          `${s.stats.daily_trades || 0} / ${s.stats.max_daily_trades}`;
+      } else {
+        document.getElementById('trades-today').textContent = '—';
+      }
+
+      const strats = document.getElementById('strategies');
+      strats.innerHTML = s.strategies.length
+        ? s.strategies.map(n => `<span class="strategy-chip">${n}</span>`).join('')
+        : '<span style="color:var(--muted)">None active</span>';
+
+      const body = document.getElementById('positions-body');
+      if (!s.positions.length) {
+        body.innerHTML = '<tr><td colspan="7" class="empty">No open positions</td></tr>';
+      } else {
+        body.innerHTML = s.positions.map(p => {
+          const pnlCls = p.pnl_dollars >= 0 ? 'green' : 'red';
+          const sign = p.pnl_dollars >= 0 ? '+' : '';
+          return `<tr>
+            <td class="sym">${p.symbol}</td>
+            <td>${p.strategy || '—'}</td>
+            <td>${p.quantity}</td>
+            <td>$${p.avg_cost.toFixed(2)}</td>
+            <td>$${p.current_price.toFixed(2)}</td>
+            <td class="${pnlCls}">${sign}$${p.pnl_dollars.toFixed(2)}</td>
+            <td class="${pnlCls}">${sign}${p.pnl_pct.toFixed(2)}%</td>
+          </tr>`;
+        }).join('');
+      }
+
+      const start = document.getElementById('start-btn');
+      const stop = document.getElementById('stop-btn');
+      const freeze = document.getElementById('freeze-btn');
+      const unfreeze = document.getElementById('unfreeze-btn');
+      start.disabled = s.running;
+      stop.disabled = !s.running;
+      freeze.disabled = !s.running || s.frozen;
+      unfreeze.disabled = !s.frozen;
+
+      document.getElementById('last-update').textContent =
+        s.timestamp ? 'updated ' + s.timestamp.replace('T', ' ') : '';
+    }
+
+    async function callAction(action) {
+      try {
+        const res = await fetch(`${API}/${action}`, { method: 'POST' });
+        const data = await res.json();
+        showToast(data.message || 'Done.');
+        refresh();
+      } catch (err) {
+        showToast('Error: ' + err.message);
+      }
+    }
+
+    function showToast(msg) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.classList.add('show');
+      setTimeout(() => t.classList.remove('show'), 3500);
+    }
+
+    function fmtMoney(n) {
+      if (n === null || n === undefined || isNaN(n)) return '—';
+      return '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    refresh();
+    setInterval(refresh, 5000);
+  </script>
+</body>
+</html>
