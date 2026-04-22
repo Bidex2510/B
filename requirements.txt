@@ -1,4 +1,4 @@
-# Jarvis AI Assistant v2.0
+# Jarvis AI Assistant v2.0 + Robinhood Trading Bot
 # Install: pip install -r requirements.txt
 
 # Web Framework
@@ -9,7 +9,7 @@ jinja2==3.1.4
 # HTTP Client (for API calls)
 httpx==0.27.0
 
-# AI Conversations
+# AI Conversations + Sentiment Analysis
 anthropic==0.39.0
 
 # Environment variables
@@ -20,3 +20,21 @@ pydantic==2.9.0
 
 # Production server
 gunicorn==22.0.0
+
+# ── Trading Bot Dependencies ─────────────────────────────────────────────────
+
+# Robinhood unofficial API
+robin-stocks==3.0.4
+
+# Market data & fundamentals (no API key needed)
+yfinance==0.2.51
+
+# Technical indicators (pure-Python, no native compilation needed)
+pandas==2.2.2
+pandas-ta==0.3.14b
+
+# TOTP / MFA support for Robinhood login
+pyotp==2.9.0
+
+# Timezone handling for NYSE market hours
+pytz==2024.1
