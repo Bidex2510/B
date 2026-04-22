@@ -8,7 +8,9 @@ Exits on RSI > 70 (overbought), 10-day hold limit, or 8% profit target.
 """
 
 import pandas as pd
-import pandas_ta as ta
+from ta.momentum import RSIIndicator
+from ta.trend import SMAIndicator
+from ta.volatility import BollingerBands
 
 from jarvis.plugins.trading.strategies.base import Strategy, TF_1D
 
@@ -24,30 +26,38 @@ class SwingStrategy(Strategy):
         close = df["Close"]
         signals: list[float] = []
 
-        rsi = ta.rsi(close, length=14)
-        if rsi is not None and not rsi.empty:
+        try:
+            rsi = RSIIndicator(close=close, window=14).rsi()
             r = rsi.iloc[-1]
-            if r < 30:
-                signals.append(1.0)
-            elif r < 40:
-                signals.append(0.75)
-            elif r < 55:
-                signals.append(0.45)
-            else:
-                signals.append(0.15)
+            if pd.notna(r):
+                if r < 30:
+                    signals.append(1.0)
+                elif r < 40:
+                    signals.append(0.75)
+                elif r < 55:
+                    signals.append(0.45)
+                else:
+                    signals.append(0.15)
+        except Exception:
+            pass
 
-        bb = ta.bbands(close, length=20)
-        if bb is not None and not bb.empty:
-            lower = bb["BBL_20_2.0"].iloc[-1]
-            upper = bb["BBU_20_2.0"].iloc[-1]
+        try:
+            bb = BollingerBands(close=close, window=20, window_dev=2)
+            lower = bb.bollinger_lband().iloc[-1]
+            upper = bb.bollinger_hband().iloc[-1]
             price = close.iloc[-1]
-            if upper > lower:
+            if pd.notna(lower) and pd.notna(upper) and upper > lower:
                 pos = (price - lower) / (upper - lower)
                 signals.append(max(0.0, 1.0 - pos))
+        except Exception:
+            pass
 
-        sma50 = ta.sma(close, length=50)
-        if sma50 is not None and not sma50.dropna().empty:
-            signals.append(1.0 if close.iloc[-1] > sma50.iloc[-1] else 0.15)
+        try:
+            sma50 = SMAIndicator(close=close, window=50).sma_indicator()
+            if pd.notna(sma50.iloc[-1]):
+                signals.append(1.0 if close.iloc[-1] > sma50.iloc[-1] else 0.15)
+        except Exception:
+            pass
 
         norm_sent = (sentiment + 1.0) / 2.0
         signals.append(norm_sent * 0.5 + 0.25)
@@ -62,9 +72,12 @@ class SwingStrategy(Strategy):
         if (price - entry_price) / entry_price >= 0.08:
             return True, "swing: +8% profit target hit"
 
-        rsi = ta.rsi(close, length=14)
-        if rsi is not None and not rsi.empty and rsi.iloc[-1] > 70:
-            return True, f"swing: RSI overbought ({rsi.iloc[-1]:.0f})"
+        try:
+            rsi = RSIIndicator(close=close, window=14).rsi().iloc[-1]
+            if pd.notna(rsi) and rsi > 70:
+                return True, f"swing: RSI overbought ({rsi:.0f})"
+        except Exception:
+            pass
 
         if age_days >= 10:
             return True, f"swing: max hold period reached ({age_days:.1f} days)"

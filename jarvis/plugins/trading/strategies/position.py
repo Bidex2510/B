@@ -8,7 +8,7 @@ Exits only on death cross (50 below 200) or when fundamentals deteriorate.
 """
 
 import pandas as pd
-import pandas_ta as ta
+from ta.trend import SMAIndicator
 
 from jarvis.plugins.trading.strategies.base import Strategy, TF_1D
 
@@ -24,17 +24,16 @@ class PositionStrategy(Strategy):
         close = df["Close"]
         signals: list[float] = []
 
-        # Fundamentals carry double weight for position trades
         signals.append(fundamental_score)
         signals.append(fundamental_score)
 
-        sma50 = ta.sma(close, length=50)
-        long_len = 200 if len(close) >= 200 else 100
-        sma_long = ta.sma(close, length=long_len)
-        if sma50 is not None and sma_long is not None:
+        try:
+            long_len = 200 if len(close) >= 200 else 100
+            sma50 = SMAIndicator(close=close, window=50).sma_indicator()
+            sma_long = SMAIndicator(close=close, window=long_len).sma_indicator()
             s50 = sma50.iloc[-1]
             slong = sma_long.iloc[-1]
-            if pd.notna(s50) and pd.notna(slong):
+            if pd.notna(s50) and pd.notna(slong) and slong > 0:
                 ratio = s50 / slong
                 if ratio > 1.05:
                     signals.append(1.0)
@@ -44,8 +43,9 @@ class PositionStrategy(Strategy):
                     signals.append(0.35)
                 else:
                     signals.append(0.10)
+        except Exception:
+            pass
 
-        # Sentiment - dampened; we care less about news on multi-month holds
         norm_sent = (sentiment + 1.0) / 2.0
         signals.append(0.5 + (norm_sent - 0.5) * 0.5)
 
@@ -53,15 +53,15 @@ class PositionStrategy(Strategy):
 
     def should_exit(self, symbol, df, entry_price, age_minutes):
         close = df["Close"]
-
-        sma50 = ta.sma(close, length=50)
-        long_len = 200 if len(close) >= 200 else 100
-        sma_long = ta.sma(close, length=long_len)
-
-        if sma50 is not None and sma_long is not None:
+        try:
+            long_len = 200 if len(close) >= 200 else 100
+            sma50 = SMAIndicator(close=close, window=50).sma_indicator()
+            sma_long = SMAIndicator(close=close, window=long_len).sma_indicator()
             s50 = sma50.iloc[-1]
             slong = sma_long.iloc[-1]
             if pd.notna(s50) and pd.notna(slong) and s50 < slong * 0.98:
                 return True, f"position: death cross (SMA50 below SMA{long_len})"
+        except Exception:
+            pass
 
         return False, ""

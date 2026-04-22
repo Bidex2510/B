@@ -13,6 +13,7 @@ restrict your account. The RiskManager tracks and blocks these.
 """
 
 import pandas as pd
+from ta.momentum import RSIIndicator
 
 from jarvis.plugins.trading.strategies.base import Strategy, TF_5M
 
@@ -33,7 +34,6 @@ class DayStrategy(Strategy):
         volume = df["Volume"]
         signals: list[float] = []
 
-        # VWAP (session): use today's bars only if timezone-aware, else all data
         try:
             today_mask = df.index.date == df.index[-1].date()
             session = df[today_mask]
@@ -42,43 +42,49 @@ class DayStrategy(Strategy):
         except Exception:
             session = df.tail(40)
 
-        tp = (session["High"] + session["Low"] + session["Close"]) / 3.0
-        vwap = (tp * session["Volume"]).cumsum() / session["Volume"].cumsum()
-        price = close.iloc[-1]
-        vwap_last = vwap.iloc[-1]
+        try:
+            tp = (session["High"] + session["Low"] + session["Close"]) / 3.0
+            vwap = (tp * session["Volume"]).cumsum() / session["Volume"].cumsum()
+            price = close.iloc[-1]
+            vwap_last = vwap.iloc[-1]
+            if pd.notna(vwap_last) and vwap_last > 0:
+                ratio = price / vwap_last
+                if ratio > 1.01:
+                    signals.append(1.0)
+                elif ratio > 1.0:
+                    signals.append(0.75)
+                elif ratio > 0.99:
+                    signals.append(0.45)
+                else:
+                    signals.append(0.15)
+        except Exception:
+            pass
 
-        if pd.notna(vwap_last) and vwap_last > 0:
-            ratio = price / vwap_last
-            if ratio > 1.01:
-                signals.append(1.0)
-            elif ratio > 1.0:
-                signals.append(0.75)
-            elif ratio > 0.99:
-                signals.append(0.45)
-            else:
-                signals.append(0.15)
+        try:
+            if len(session) >= 8:
+                or_high = session.iloc[:6]["High"].max()
+                price = close.iloc[-1]
+                if price > or_high:
+                    signals.append(1.0)
+                elif price > or_high * 0.998:
+                    signals.append(0.6)
+                else:
+                    signals.append(0.3)
+        except Exception:
+            pass
 
-        # Opening range breakout - first 6 bars = first 30 min
-        if len(session) >= 8:
-            opening_range = session.iloc[:6]
-            or_high = opening_range["High"].max()
-            if price > or_high:
-                signals.append(1.0)
-            elif price > or_high * 0.998:
-                signals.append(0.6)
-            else:
-                signals.append(0.3)
-
-        # Volume surge on this bar vs 20-bar average
-        avg_vol = volume.rolling(20).mean().iloc[-1]
-        if pd.notna(avg_vol) and avg_vol > 0:
-            vol_ratio = volume.iloc[-1] / avg_vol
-            if vol_ratio > 2.0:
-                signals.append(1.0)
-            elif vol_ratio > 1.3:
-                signals.append(0.75)
-            else:
-                signals.append(0.35)
+        try:
+            avg_vol = volume.rolling(20).mean().iloc[-1]
+            if pd.notna(avg_vol) and avg_vol > 0:
+                vol_ratio = volume.iloc[-1] / avg_vol
+                if vol_ratio > 2.0:
+                    signals.append(1.0)
+                elif vol_ratio > 1.3:
+                    signals.append(0.75)
+                else:
+                    signals.append(0.35)
+        except Exception:
+            pass
 
         norm_sent = (sentiment + 1.0) / 2.0
         signals.append(norm_sent)
@@ -93,6 +99,6 @@ class DayStrategy(Strategy):
             return True, f"day: +2% profit target ({pnl:.1%})"
         if pnl <= -0.01:
             return True, f"day: -1% stop triggered ({pnl:.1%})"
-        if age_minutes > 300:  # 5 hours max
+        if age_minutes > 300:
             return True, "day: max hold time reached"
         return False, ""

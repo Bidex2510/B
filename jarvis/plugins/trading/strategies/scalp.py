@@ -14,7 +14,7 @@ expect tick-by-tick execution.
 """
 
 import pandas as pd
-import pandas_ta as ta
+from ta.trend import EMAIndicator, MACD
 
 from jarvis.plugins.trading.strategies.base import Strategy, TF_1M
 
@@ -23,7 +23,7 @@ class ScalpStrategy(Strategy):
     name = "scalp"
     bar_interval = TF_1M
     bar_period = "1d"
-    target_hold_days = 0.02   # ~30 minutes
+    target_hold_days = 0.02
     min_score_to_buy = 0.75
     intraday = True
 
@@ -35,45 +35,49 @@ class ScalpStrategy(Strategy):
         volume = df["Volume"]
         signals: list[float] = []
 
-        # EMA9 vs EMA20 - momentum direction on a fast timeframe
-        ema9 = ta.ema(close, length=9)
-        ema20 = ta.ema(close, length=20)
-        if ema9 is not None and ema20 is not None:
-            if ema9.iloc[-1] > ema20.iloc[-1] > ema20.iloc[-2]:
-                signals.append(1.0)
-            elif ema9.iloc[-1] > ema20.iloc[-1]:
-                signals.append(0.7)
-            else:
-                signals.append(0.15)
+        try:
+            ema9 = EMAIndicator(close=close, window=9).ema_indicator()
+            ema20 = EMAIndicator(close=close, window=20).ema_indicator()
+            e9 = ema9.iloc[-1]
+            e20 = ema20.iloc[-1]
+            e20_prev = ema20.iloc[-2]
+            if pd.notna(e9) and pd.notna(e20):
+                if e9 > e20 and pd.notna(e20_prev) and e20 > e20_prev:
+                    signals.append(1.0)
+                elif e9 > e20:
+                    signals.append(0.7)
+                else:
+                    signals.append(0.15)
 
-        # Price above EMA9 = short-term strength
-        if ema9 is not None and pd.notna(ema9.iloc[-1]):
-            if close.iloc[-1] > ema9.iloc[-1] * 1.001:
+            if pd.notna(e9) and close.iloc[-1] > e9 * 1.001:
                 signals.append(1.0)
-            elif close.iloc[-1] > ema9.iloc[-1]:
+            elif pd.notna(e9) and close.iloc[-1] > e9:
                 signals.append(0.7)
             else:
                 signals.append(0.2)
+        except Exception:
+            pass
 
-        # MACD histogram turning positive
-        macd = ta.macd(close, fast=5, slow=13, signal=3)
-        if macd is not None and not macd.empty:
-            hist_col = [c for c in macd.columns if c.startswith("MACDh")]
-            if hist_col:
-                h = macd[hist_col[0]]
-                if len(h) > 1 and pd.notna(h.iloc[-1]) and pd.notna(h.iloc[-2]):
-                    if h.iloc[-1] > 0 and h.iloc[-1] > h.iloc[-2]:
-                        signals.append(1.0)
-                    elif h.iloc[-1] > 0:
-                        signals.append(0.6)
-                    else:
-                        signals.append(0.2)
+        try:
+            macd = MACD(close=close, window_slow=13, window_fast=5, window_sign=3)
+            h = macd.macd_diff()
+            if len(h) > 1 and pd.notna(h.iloc[-1]) and pd.notna(h.iloc[-2]):
+                if h.iloc[-1] > 0 and h.iloc[-1] > h.iloc[-2]:
+                    signals.append(1.0)
+                elif h.iloc[-1] > 0:
+                    signals.append(0.6)
+                else:
+                    signals.append(0.2)
+        except Exception:
+            pass
 
-        # Volume spike confirmation
-        avg_vol = volume.rolling(20).mean().iloc[-1]
-        if pd.notna(avg_vol) and avg_vol > 0:
-            ratio = volume.iloc[-1] / avg_vol
-            signals.append(min(1.0, ratio / 2.0))
+        try:
+            avg_vol = volume.rolling(20).mean().iloc[-1]
+            if pd.notna(avg_vol) and avg_vol > 0:
+                ratio = volume.iloc[-1] / avg_vol
+                signals.append(min(1.0, ratio / 2.0))
+        except Exception:
+            pass
 
         return sum(signals) / len(signals) if signals else 0.5
 

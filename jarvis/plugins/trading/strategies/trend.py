@@ -8,7 +8,7 @@ Exits on MACD bearish crossover or price falling meaningfully below the SMA.
 """
 
 import pandas as pd
-import pandas_ta as ta
+from ta.trend import MACD, ADXIndicator, SMAIndicator
 
 from jarvis.plugins.trading.strategies.base import Strategy, TF_1D
 
@@ -26,42 +26,49 @@ class TrendStrategy(Strategy):
         low = df["Low"]
         signals: list[float] = []
 
-        macd = ta.macd(close)
-        if macd is not None and not macd.empty:
-            m = macd["MACD_12_26_9"].iloc[-1]
-            s = macd["MACDs_12_26_9"].iloc[-1]
-            h = macd["MACDh_12_26_9"].iloc[-1]
+        try:
+            macd = MACD(close=close)
+            m = macd.macd().iloc[-1]
+            s = macd.macd_signal().iloc[-1]
+            h = macd.macd_diff().iloc[-1]
             if pd.notna(m) and pd.notna(s):
-                if m > s and h > 0:
+                if m > s and pd.notna(h) and h > 0:
                     signals.append(1.0)
                 elif m > s:
                     signals.append(0.7)
                 else:
                     signals.append(0.15)
+        except Exception:
+            pass
 
-        sma50 = ta.sma(close, length=50)
-        if sma50 is not None and not sma50.dropna().empty:
-            price = close.iloc[-1]
+        try:
+            sma50 = SMAIndicator(close=close, window=50).sma_indicator()
             s50 = sma50.iloc[-1]
-            if price > s50 * 1.03:
-                signals.append(1.0)
-            elif price > s50:
-                signals.append(0.7)
-            else:
-                signals.append(0.15)
-
-        adx_df = ta.adx(high, low, close, length=14)
-        if adx_df is not None and not adx_df.empty:
-            adx = adx_df["ADX_14"].iloc[-1]
-            if pd.notna(adx):
-                if adx > 30:
+            price = close.iloc[-1]
+            if pd.notna(s50) and s50 > 0:
+                if price > s50 * 1.03:
                     signals.append(1.0)
-                elif adx > 25:
+                elif price > s50:
+                    signals.append(0.7)
+                else:
+                    signals.append(0.15)
+        except Exception:
+            pass
+
+        try:
+            adx = ADXIndicator(high=high, low=low, close=close, window=14).adx()
+            adx_val = adx.iloc[-1]
+            if pd.notna(adx_val):
+                if adx_val > 30:
+                    signals.append(1.0)
+                elif adx_val > 25:
                     signals.append(0.8)
-                elif adx > 20:
+                elif adx_val > 20:
                     signals.append(0.5)
                 else:
                     signals.append(0.2)
+        except Exception:
+            pass
 
         norm_sent = (sentiment + 1.0) / 2.0
         signals.append(0.5 + (norm_sent - 0.5) * 0.6)
@@ -71,16 +78,21 @@ class TrendStrategy(Strategy):
     def should_exit(self, symbol, df, entry_price, age_minutes):
         close = df["Close"]
 
-        macd = ta.macd(close)
-        if macd is not None and not macd.empty:
-            m = macd["MACD_12_26_9"].iloc[-1]
-            s = macd["MACDs_12_26_9"].iloc[-1]
+        try:
+            macd = MACD(close=close)
+            m = macd.macd().iloc[-1]
+            s = macd.macd_signal().iloc[-1]
             if pd.notna(m) and pd.notna(s) and m < s:
                 return True, "trend: MACD bearish crossover"
+        except Exception:
+            pass
 
-        sma50 = ta.sma(close, length=50)
-        if sma50 is not None and not sma50.dropna().empty:
-            if close.iloc[-1] < sma50.iloc[-1] * 0.97:
+        try:
+            sma50 = SMAIndicator(close=close, window=50).sma_indicator()
+            s50 = sma50.iloc[-1]
+            if pd.notna(s50) and close.iloc[-1] < s50 * 0.97:
                 return True, "trend: price broke below 50-SMA"
+        except Exception:
+            pass
 
         return False, ""

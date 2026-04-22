@@ -29,9 +29,9 @@ robin-stocks==3.0.4
 # Market data & fundamentals (no API key needed)
 yfinance==0.2.51
 
-# Technical indicators (pure-Python, no native compilation needed)
-pandas==2.2.2
-pandas-ta==0.3.14b
+# Technical indicators (pure-Python, works on Python 3.11+)
+pandas>=1.5.3
+ta>=0.11.0
 
 # TOTP / MFA support for Robinhood login
 pyotp==2.9.0
