@@ -53,14 +53,20 @@ class _BarKey:
 
 
 class StrategyManager:
+    # Intraday strategies are ON by default; swing/position/trend/breakout are OFF
+    _INTRADAY = {"day", "scalp"}
+
     def __init__(self):
         self.strategies: list[Strategy] = []
         for cls in _ALL_STRATEGIES:
-            if _flag(cls.name, default=True):
+            default_on = cls.name in self._INTRADAY
+            if _flag(cls.name, default=default_on):
                 self.strategies.append(cls())
                 logger.info(f"Strategy enabled: {cls.name}")
             else:
                 logger.info(f"Strategy disabled: {cls.name}")
+        # Multiplier applied to intraday scores to further favour day trades
+        self._day_bias = float(os.getenv("DAY_TRADING_BIAS", "1.3"))
 
     # ------------------------------------------------------------------
     # Introspection
@@ -90,9 +96,21 @@ class StrategyManager:
         sentiment: float,
         fundamental_score: float,
     ) -> StrategySignal | None:
-        """Run every active strategy on the symbol. Return the strongest BUY."""
+        """Return the single strongest BUY signal above threshold."""
+        signals = self.evaluate_all(symbol, sentiment, fundamental_score)
+        if not signals:
+            return None
+        return max(signals, key=lambda s: s.score)
+
+    def evaluate_all(
+        self,
+        symbol: str,
+        sentiment: float,
+        fundamental_score: float,
+    ) -> list[StrategySignal]:
+        """Return ALL strategy signals above threshold (for consensus scoring)."""
         bar_cache: dict[_BarKey, pd.DataFrame] = {}
-        best: StrategySignal | None = None
+        results: list[StrategySignal] = []
 
         for strat in self.strategies:
             key = _BarKey(strat.bar_interval, strat.bar_period)
@@ -105,25 +123,26 @@ class StrategyManager:
                 continue
 
             try:
-                score = strat.score(symbol, df, sentiment, fundamental_score)
+                # Apply day-trading bias multiplier to intraday strategies
+                raw_score = strat.score(symbol, df, sentiment, fundamental_score)
+                score = raw_score * (self._day_bias if strat.intraday else 1.0)
+                score = min(score, 1.0)
             except Exception as exc:
                 logger.warning(f"{strat.name} scoring failed for {symbol}: {exc}")
                 continue
 
             logger.debug(f"{symbol} | {strat.name}: {score:.2f}")
             if score >= strat.min_score_to_buy:
-                signal = StrategySignal(
+                results.append(StrategySignal(
                     symbol=symbol,
                     action=Action.BUY,
                     score=score,
                     strategy_name=strat.name,
                     reason=f"{strat.name} score {score:.0%}",
                     target_hold_days=strat.target_hold_days,
-                )
-                if best is None or score > best.score:
-                    best = signal
+                ))
 
-        return best
+        return results
 
     # ------------------------------------------------------------------
     # Exit evaluation

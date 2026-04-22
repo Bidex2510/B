@@ -33,11 +33,12 @@ class RiskManager:
     PDT_MAX_DAY_TRADES_5D = 3
 
     def __init__(self):
-        self.MAX_POSITION_PCT = _pct("RISK_MAX_POSITION_PCT", 0.05)
+        self.MAX_POSITION_PCT = _pct("RISK_MAX_POSITION_PCT", 0.10)
         self.STOP_LOSS_PCT = _pct("RISK_STOP_LOSS_PCT", -0.02)
         self.TRAILING_STOP_PCT = _pct("RISK_TRAILING_STOP_PCT", -0.03)
-        self.DAILY_MAX_LOSS_PCT = _pct("RISK_DAILY_MAX_LOSS_PCT", -0.02)
-        self.MAX_DAILY_TRADES = int(os.getenv("RISK_MAX_DAILY_TRADES", "10"))
+        self.DAILY_MAX_LOSS_PCT = _pct("RISK_DAILY_MAX_LOSS_PCT", -0.05)
+        self.MAX_DAILY_TRADES = int(os.getenv("RISK_MAX_DAILY_TRADES", "0"))  # 0 = unlimited
+        self.CONCENTRATION_LIMIT = _pct("RISK_CONCENTRATION_LIMIT", 0.25)
         self.ACCOUNT_EQUITY = _pct("PDT_ACCOUNT_EQUITY", 0.0)
 
         self._frozen = threading.Event()
@@ -85,7 +86,7 @@ class RiskManager:
             self._daily_trades = 0
             self._trade_date = today
 
-        if self._daily_trades >= self.MAX_DAILY_TRADES:
+        if self.MAX_DAILY_TRADES > 0 and self._daily_trades >= self.MAX_DAILY_TRADES:
             logger.warning("Max daily trades reached – halting for the day.")
             return True
 
@@ -178,11 +179,28 @@ class RiskManager:
     def clear_position_peak(self, symbol: str) -> None:
         self._position_peaks.pop(symbol, None)
 
+    def stop_loss_price(self, avg_buy_price: float) -> float:
+        """Return the hard stop price for a position."""
+        return round(avg_buy_price * (1 + self.STOP_LOSS_PCT), 2)
+
+    def concentration_alert(self, portfolio_value: float, positions: dict) -> list[str]:
+        """Return symbols whose position value exceeds the concentration limit."""
+        alerts = []
+        for symbol, pos in positions.items():
+            try:
+                value = float(pos.get("quantity", 0)) * float(pos.get("current_price", pos.get("average_buy_price", 0)))
+                if portfolio_value > 0 and value / portfolio_value > self.CONCENTRATION_LIMIT:
+                    alerts.append(symbol)
+            except Exception:
+                pass
+        return alerts
+
     def get_stats(self) -> dict:
         return {
             "frozen": self.is_frozen,
             "daily_trades": self._daily_trades,
             "max_daily_trades": self.MAX_DAILY_TRADES,
+            "unlimited_trades": self.MAX_DAILY_TRADES == 0,
             "session_start_value": self._session_start_value,
             "pdt_trades_5d": self.pdt_trades_in_window(),
             "pdt_active": self.ACCOUNT_EQUITY < self.PDT_EQUITY_THRESHOLD,

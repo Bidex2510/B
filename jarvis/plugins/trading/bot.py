@@ -1,19 +1,16 @@
 """Main trading bot orchestrator.
 
-On start() the bot immediately begins running six strategies in parallel:
+On start() the bot immediately runs six strategies in parallel:
   - swing      (3-10 day pullback trades)
   - position   (1-6 month fundamentals-driven)
   - trend      (2-6 week momentum following)
   - breakout   (1-3 week new-high breakouts)
-  - day        (intraday, exits before close)
-  - scalp      (1-30 min momentum bursts on 1-min bars)
+  - day        (intraday, exits before close, 1.25x score bias)
+  - scalp      (1-30 min momentum bursts on 1-min bars, 1.25x score bias)
 
-Each trading cycle:
-  1. Runs the circuit breaker (daily loss limit, kill switch, trade cap)
-  2. Checks open positions - strategy-specific exits + global stop-loss
-  3. Force-closes all intraday (day/scalp) positions 15 min before market close
-  4. Scans the watchlist (stocks + ETFs), picks the strongest BUY signal
-  5. Executes up to MAX_BUYS_PER_CYCLE BUYs, sized by risk rules
+Multi-strategy consensus: when 2+ strategies agree on the same symbol,
+share quantity is boosted (+25% per additional strategy) to capitalise
+on high-conviction trades.
 
 Paper trading is the default. Set PAPER_TRADING=false to go live.
 """
@@ -33,16 +30,17 @@ from jarvis.plugins.trading.risk_manager import RiskManager
 from jarvis.plugins.trading.robinhood_client import RobinhoodClient
 from jarvis.plugins.trading.scanner import StockScanner
 from jarvis.plugins.trading.strategies.manager import StrategyManager
+from jarvis.plugins.trading.trade_log import TradeLog
 
 logger = logging.getLogger(__name__)
 
 MARKET_OPEN = dtime(9, 30)
 MARKET_CLOSE = dtime(16, 0)
-EOD_FORCE_CLOSE = dtime(15, 45)   # exit day/scalp positions by this time
+EOD_FORCE_CLOSE = dtime(15, 45)
 ET = pytz.timezone("America/New_York")
 
-MAX_CANDIDATES_PER_CYCLE = int(os.getenv("MAX_CANDIDATES_PER_CYCLE", "20"))
-MAX_BUYS_PER_CYCLE = int(os.getenv("MAX_BUYS_PER_CYCLE", "2"))
+MAX_CANDIDATES_PER_CYCLE = int(os.getenv("MAX_CANDIDATES_PER_CYCLE", "30"))
+MAX_BUYS_PER_CYCLE = int(os.getenv("MAX_BUYS_PER_CYCLE", "5"))
 
 
 class TradingBot:
@@ -58,12 +56,12 @@ class TradingBot:
         self._scanner = StockScanner()
         self._notifier = Notifier()
         self._positions = PositionStore()
+        self._trade_log = TradeLog()
 
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
         self._running = False
 
-        # When any intraday strategy is active, scan every 60s for quick reactions
         default_interval = 60 if self._strategies.has_intraday else 300
         self._scan_interval = int(os.getenv("SCAN_INTERVAL_SECONDS", default_interval))
 
@@ -94,6 +92,7 @@ class TradingBot:
 
         portfolio_value = self._client.get_portfolio_value()
         self._risk.set_session_value(portfolio_value)
+        self._trade_log.record_portfolio_value(portfolio_value)
 
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()
@@ -101,15 +100,14 @@ class TradingBot:
 
         mode = "PAPER" if self._client.paper_trading else "LIVE"
         strategies = ", ".join(self._strategies.active_names)
+        trades_limit = "unlimited" if self._risk.MAX_DAILY_TRADES == 0 else str(self._risk.MAX_DAILY_TRADES)
         msg = (
             f"Trading bot started in {mode} mode.\n"
             f"Portfolio: ${portfolio_value:,.2f}\n"
             f"Active strategies: {strategies}\n"
-            f"Scan interval: {self._scan_interval}s during market hours"
+            f"Daily trades: {trades_limit} | Scan interval: {self._scan_interval}s"
         )
-        self._notifier.info(
-            f"[BOT STARTED] {mode} | ${portfolio_value:,.2f} | strategies: {strategies}"
-        )
+        self._notifier.info(f"[BOT STARTED] {mode} | ${portfolio_value:,.2f} | {strategies}")
         return msg
 
     def stop(self) -> str:
@@ -131,6 +129,18 @@ class TradingBot:
         self._notifier.info("[KILL SWITCH] Bot unfrozen.")
         return "Bot unfrozen – resuming normal operation."
 
+    def close_all(self) -> str:
+        """Emergency close of every open position at market price."""
+        positions = self._client.get_positions()
+        if not positions:
+            return "No open positions to close."
+        count = 0
+        for symbol, pos in positions.items():
+            price = self._client.get_current_price(symbol) or pos["average_buy_price"]
+            self._execute_sell(symbol, int(pos["quantity"]), price, "panic: close all")
+            count += 1
+        return f"Closing {count} position(s). Orders submitted."
+
     def get_status(self) -> str:
         if not self._running:
             return (
@@ -148,6 +158,7 @@ class TradingBot:
         mode = "PAPER" if self._client.paper_trading else "LIVE"
         frozen_tag = " [FROZEN]" if self._risk.is_frozen else ""
         stats = self._risk.get_stats()
+        trade_stats = self._trade_log.stats()
 
         lines = [
             f"Status : RUNNING ({mode}){frozen_tag}",
@@ -155,10 +166,9 @@ class TradingBot:
             f"Portfolio: ${portfolio_value:,.2f}",
             f"Buying power: ${buying_power:,.2f}",
             f"Open positions: {len(positions)}",
-            f"Trades today: {stats['daily_trades']} / {stats['max_daily_trades']}",
+            f"Trades today: {stats['daily_trades']} ({'unlimited' if stats['unlimited_trades'] else stats['max_daily_trades']})",
+            f"Win rate: {trade_stats['win_rate']}% | Profit factor: {trade_stats['profit_factor']} | Total P&L: ${trade_stats['total_pnl']:+,.2f}",
         ]
-        if stats["pdt_active"]:
-            lines.append(f"Day trades (rolling 5d): {stats['pdt_trades_5d']} / 3 (PDT)")
 
         for symbol, pos in positions.items():
             price = self._client.get_current_price(symbol) or pos["average_buy_price"]
@@ -166,12 +176,22 @@ class TradingBot:
             sign = "+" if pnl_pct >= 0 else ""
             meta = self._positions.get(symbol)
             strat_tag = f" [{meta['strategy']}]" if meta else ""
+            stop = self._risk.stop_loss_price(pos["average_buy_price"])
             lines.append(
                 f"  {symbol}{strat_tag}: {pos['quantity']:.0f} sh @ ${pos['average_buy_price']:.2f}"
-                f" | now ${price:.2f} ({sign}{pnl_pct:.1f}%)"
+                f" | now ${price:.2f} ({sign}{pnl_pct:.1f}%) | stop ${stop:.2f}"
             )
 
         return "\n".join(lines)
+
+    def get_trade_stats(self) -> dict:
+        return {
+            "stats": self._trade_log.stats(),
+            "by_strategy": self._trade_log.by_strategy(),
+            "best_strategy": self._trade_log.best_strategy(),
+            "equity_history": self._trade_log.equity_history(),
+            "recent_trades": self._trade_log.recent_trades(20),
+        }
 
     # ------------------------------------------------------------------
     # Background loop
@@ -199,6 +219,7 @@ class TradingBot:
 
     def _trading_cycle(self) -> None:
         portfolio_value = self._client.get_portfolio_value()
+        self._trade_log.record_portfolio_value(portfolio_value)
 
         if self._risk.check_circuit_breaker(portfolio_value):
             if self._risk.is_frozen:
@@ -229,11 +250,9 @@ class TradingBot:
 
             exit_reason: str | None = None
 
-            # 1. Global hard stop-loss / trailing stop (applies to every position)
             if self._risk.should_stop_loss(symbol, price, pos["average_buy_price"]):
                 exit_reason = "risk: global stop-loss hit"
 
-            # 2. Strategy-specific exit rules
             if exit_reason is None and strategy_name:
                 exit_now, reason = self._strategies.check_exit(
                     symbol, strategy_name, entry_price, age_minutes
@@ -241,7 +260,6 @@ class TradingBot:
                 if exit_now:
                     exit_reason = reason
 
-            # 3. End-of-day force-close for intraday (day, scalp) strategies
             if exit_reason is None and near_close and strategy_name:
                 strat = self._strategies.get(strategy_name)
                 if strat and strat.intraday:
@@ -251,7 +269,7 @@ class TradingBot:
                 self._execute_sell(symbol, int(pos["quantity"]), price, exit_reason)
 
     # ------------------------------------------------------------------
-    # Entry scan
+    # Entry scan - multi-strategy consensus
     # ------------------------------------------------------------------
 
     def _scan_and_buy(self, portfolio_value: float) -> None:
@@ -259,50 +277,55 @@ class TradingBot:
         held = set(self._client.get_positions().keys())
         candidates = [s for s in watchlist if s not in held]
 
-        scored: list = []
+        # Collect all signals per symbol (multi-strategy)
+        symbol_signals: list[tuple] = []  # (symbol, best_signal, consensus_count)
+
         for symbol in candidates[:MAX_CANDIDATES_PER_CYCLE]:
             try:
                 company = self._scanner.get_company_name(symbol)
                 sent = self._sentiment.analyze(symbol, company)
                 fund = self._fundamental.analyze(symbol)
-                signal = self._strategies.evaluate_entry(symbol, sent, fund)
-                if signal is not None:
-                    scored.append(signal)
+                signals = self._strategies.evaluate_all(symbol, sent, fund)
+                if signals:
+                    best = max(signals, key=lambda s: s.score)
+                    symbol_signals.append((symbol, best, len(signals)))
             except Exception as exc:
                 logger.warning(f"Analysis failed for {symbol}: {exc}")
 
-        scored.sort(key=lambda s: s.score, reverse=True)
-        for signal in scored[:MAX_BUYS_PER_CYCLE]:
-            self._execute_buy(signal, portfolio_value)
+        # Sort by consensus-boosted score (more strategies agreeing = higher priority)
+        symbol_signals.sort(
+            key=lambda x: x[1].score * (1 + (x[2] - 1) * 0.2),
+            reverse=True
+        )
+
+        for symbol, signal, consensus in symbol_signals[:MAX_BUYS_PER_CYCLE]:
+            # Shares boost: +25% per additional strategy that agrees
+            share_boost = 1.0 + (consensus - 1) * 0.25
+            self._execute_buy(signal, portfolio_value, share_boost=share_boost)
 
     # ------------------------------------------------------------------
     # Order execution
     # ------------------------------------------------------------------
 
-    def _execute_buy(self, signal, portfolio_value: float) -> None:
-        # PDT check - block if this would exceed 3 day trades in 5 days for small accounts
+    def _execute_buy(self, signal, portfolio_value: float, share_boost: float = 1.0) -> None:
         strat = self._strategies.get(signal.strategy_name)
         if strat and strat.intraday and self._risk.pdt_would_block():
-            logger.info(
-                f"Skipping {signal.strategy_name} buy on {signal.symbol}: PDT limit would trip "
-                f"(account < $25k, already {self._risk.pdt_trades_in_window()} day trades in 5d)"
-            )
+            logger.info(f"Skipping {signal.strategy_name} buy on {signal.symbol}: PDT limit")
             return
 
         price = self._client.get_current_price(signal.symbol)
         if price is None:
-            logger.warning(f"No price for {signal.symbol} – skipping buy.")
             return
 
         buying_power = self._client.get_buying_power()
-        shares = self._risk.position_size(portfolio_value, price)
+        base_shares = self._risk.position_size(portfolio_value, price)
+        shares = max(1, int(base_shares * share_boost))
 
         if shares * price > buying_power:
-            logger.info(
-                f"Insufficient buying power for {signal.symbol}: "
-                f"need ${shares * price:,.2f}, have ${buying_power:,.2f}"
-            )
-            return
+            # Try fewer shares if full amount unavailable
+            shares = int(buying_power / price)
+            if shares < 1:
+                return
 
         limit = round(price * 1.005, 2)
         result = self._client.buy(signal.symbol, shares, limit)
@@ -310,13 +333,14 @@ class TradingBot:
         if "error" not in result:
             self._risk.record_trade()
             self._positions.record_entry(signal.symbol, signal.strategy_name, price)
+            consensus_tag = f" (x{share_boost:.1f} consensus)" if share_boost > 1.0 else ""
             self._notifier.trade_alert(
                 "BUY", signal.symbol, shares, price,
                 signal.score, self._client.paper_trading,
             )
             logger.info(
                 f"[{signal.strategy_name}] Bought {shares} {signal.symbol} "
-                f"@ ${price:.2f} (score={signal.score:.0%})"
+                f"@ ${price:.2f} (score={signal.score:.0%}){consensus_tag}"
             )
         else:
             logger.error(f"Buy order failed for {signal.symbol}: {result.get('error')}")
@@ -329,11 +353,20 @@ class TradingBot:
             self._risk.record_trade()
             self._risk.clear_position_peak(symbol)
 
-            # PDT tracking - if this buy+sell happened same day, it's a day trade
             meta = self._positions.get(symbol)
             if meta:
                 try:
                     entry = datetime.fromisoformat(meta["entry_date"])
+                    # Record the completed trade in the log
+                    self._trade_log.record_close(
+                        symbol=symbol,
+                        strategy=meta.get("strategy", "unknown"),
+                        entry_price=meta["entry_price"],
+                        exit_price=price,
+                        shares=shares,
+                        entry_date=meta["entry_date"],
+                        reason=reason,
+                    )
                     if entry.date() == datetime.now().date():
                         self._risk.record_day_trade()
                 except Exception:

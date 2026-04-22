@@ -23,7 +23,7 @@ class DayStrategy(Strategy):
     bar_interval = TF_5M
     bar_period = "5d"
     target_hold_days = 0.25
-    min_score_to_buy = 0.72
+    min_score_to_buy = 0.62
     intraday = True
 
     def score(self, symbol, df, sentiment, fundamental_score):
