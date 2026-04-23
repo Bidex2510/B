@@ -515,6 +515,106 @@
     main {
       padding-bottom: 50px;
     }
+
+    /* Mobile Responsive */
+    @media (max-width: 768px) {
+      .top-bar {
+        padding: 10px 12px;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .portfolio-display {
+        width: 100%;
+        justify-content: space-between;
+      }
+      .portfolio-value {
+        font-size: 24px;
+      }
+      .top-controls {
+        width: 100%;
+        justify-content: space-around;
+      }
+      .btn {
+        padding: 10px 8px;
+        font-size: 11px;
+      }
+      .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 8px;
+      }
+      .stat {
+        padding: 10px;
+      }
+      .stat-label {
+        font-size: 9px;
+      }
+      .stat-value {
+        font-size: 16px;
+      }
+      .charts-row {
+        grid-template-columns: 1fr;
+      }
+      .positions-table {
+        font-size: 11px;
+      }
+      .positions-table td, .positions-table th {
+        padding: 8px 4px;
+      }
+      .position-controls {
+        flex-direction: column;
+      }
+      .control-btn {
+        font-size: 10px;
+        padding: 3px 6px;
+        flex: 1;
+      }
+      .tab-btn {
+        padding: 10px 12px;
+        font-size: 12px;
+      }
+      .tabs {
+        margin-bottom: 12px;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .portfolio-value {
+        font-size: 20px;
+      }
+      .top-bar {
+        padding: 8px;
+      }
+      .btn {
+        padding: 8px 6px;
+        font-size: 10px;
+      }
+      .stats-grid {
+        grid-template-columns: 1fr;
+        gap: 6px;
+      }
+      .stat {
+        padding: 8px;
+      }
+      .stat-value {
+        font-size: 14px;
+      }
+      .badges {
+        gap: 4px;
+      }
+      .badge {
+        padding: 3px 8px;
+        font-size: 9px;
+      }
+      .modal-content {
+        width: 95%;
+        padding: 15px;
+      }
+      .modal-title {
+        font-size: 14px;
+      }
+    }
   </style>
 </head>
 <body>
@@ -544,8 +644,9 @@
 
   <div style="display: flex; gap: 8px;">
     <div class="time-display" id="timeDisplay"></div>
-    <button class="btn" onclick="showModal('shortcuts')">Help</button>
+    <button class="btn" onclick="showModal('shortcuts')" style="display: none;" id="helpBtn">Help</button>
     <button class="btn" onclick="cycleTheme()">🎨</button>
+    <button class="btn" id="mobileToggleBtn" onclick="toggleMobileMode()" style="display: none;">📱</button>
   </div>
 </div>
 
@@ -603,6 +704,17 @@
       <div class="stat">
         <div class="stat-label">Frozen</div>
         <div class="stat-value" id="frozenStatus">No</div>
+      </div>
+    </div>
+
+    <!-- Mobile Quick Actions -->
+    <div id="mobileQuickActions" style="display: none; margin-bottom: 15px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px;">
+      <div style="font-size: 11px; color: var(--muted); text-transform: uppercase; margin-bottom: 10px; letter-spacing: 0.5px;">⚡ Quick Actions</div>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+        <button class="btn btn-start" onclick="sendCmd('/api/trading/start')" style="width: 100%;">▶ Start</button>
+        <button class="btn btn-stop" onclick="sendCmd('/api/trading/stop')" style="width: 100%;">⏹ Stop</button>
+        <button class="btn btn-freeze" onclick="sendCmd('/api/trading/freeze')" style="width: 100%;">❄ Freeze</button>
+        <button class="btn btn-danger" onclick="if(confirm('Close ALL?')) sendCmd('/api/trading/close-all')" style="width: 100%;">⚠ Close All</button>
       </div>
     </div>
 
@@ -858,6 +970,26 @@
   let refreshInterval = 5000;
   let autoRefresh = true;
   let notifications = [];
+
+  // ===== MOBILE DETECTION =====
+  function isMobileDevice() {
+    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth <= 768;
+  }
+
+  function toggleMobileMode() {
+    const enabled = localStorage.getItem('mobileMode') === 'true';
+    localStorage.setItem('mobileMode', !enabled);
+    location.reload();
+  }
+
+  function initMobileMode() {
+    const mobileMode = localStorage.getItem('mobileMode') === 'true' || (isMobileDevice() && !localStorage.getItem('mobileMode'));
+    if (mobileMode) {
+      document.getElementById('mobileQuickActions').style.display = 'block';
+      document.getElementById('mobileToggleBtn').style.display = 'block';
+      document.getElementById('helpBtn').style.display = 'none';
+    }
+  }
 
   // ===== THEME =====
   function cycleTheme() {
@@ -1497,6 +1629,7 @@
 
   // Initial load
   initTheme();
+  initMobileMode();
   fetchStatus();
   fetchVIX();
   setConnectionStatus(navigator.onLine);
