@@ -61,6 +61,9 @@ class TradingBot:
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
         self._running = False
+        self._last_scan_symbols: list[str] = []
+        self._session_start_iso: str = ""
+        self._daily_goal: float = float(os.getenv("DAILY_GOAL", "0"))
 
         default_interval = 60 if self._strategies.has_intraday else 300
         self._scan_interval = int(os.getenv("SCAN_INTERVAL_SECONDS", default_interval))
@@ -93,6 +96,7 @@ class TradingBot:
         portfolio_value = self._client.get_portfolio_value()
         self._risk.set_session_value(portfolio_value)
         self._trade_log.record_portfolio_value(portfolio_value)
+        self._session_start_iso = datetime.now().isoformat(timespec="seconds")
 
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()
@@ -279,6 +283,7 @@ class TradingBot:
 
         # Collect all signals per symbol (multi-strategy)
         symbol_signals: list[tuple] = []  # (symbol, best_signal, consensus_count)
+        self._last_scan_symbols = candidates[:MAX_CANDIDATES_PER_CYCLE]
 
         for symbol in candidates[:MAX_CANDIDATES_PER_CYCLE]:
             try:
