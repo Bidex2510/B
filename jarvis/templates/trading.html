@@ -560,6 +560,7 @@
     <button class="tab-btn active" onclick="switchTab('overview')">Overview</button>
     <button class="tab-btn" onclick="switchTab('positions')">Positions</button>
     <button class="tab-btn" onclick="switchTab('history')">History</button>
+    <button class="tab-btn" onclick="switchTab('backtest')">Backtest</button>
     <button class="tab-btn" onclick="switchTab('log')">Activity Log</button>
   </div>
 
@@ -586,6 +587,18 @@
       <div class="stat">
         <div class="stat-label">Win Rate</div>
         <div class="stat-value" id="winRate">0%</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Avg Win</div>
+        <div class="stat-value green" id="avgWin">$0.00</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Avg Loss</div>
+        <div class="stat-value red" id="avgLoss">$0.00</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Profit Factor</div>
+        <div class="stat-value" id="profitFactor">0.00</div>
       </div>
       <div class="stat">
         <div class="stat-label">Frozen</div>
@@ -688,6 +701,105 @@
         </tr>
       </tbody>
     </table>
+  </div>
+
+  <!-- ===== BACKTEST TAB ===== -->
+  <div id="backtest" class="tab-content">
+    <div style="background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 15px; margin-bottom: 15px;">
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 12px;">
+        <div>
+          <label style="font-size: 11px; color: var(--muted); text-transform: uppercase;">Strategy</label>
+          <select id="btStrategy" class="goal-input" style="padding: 8px; margin-top: 5px;">
+            <option value="day">Day</option>
+            <option value="scalp">Scalp</option>
+            <option value="swing">Swing</option>
+            <option value="trend">Trend</option>
+            <option value="position">Position</option>
+            <option value="breakout">Breakout</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size: 11px; color: var(--muted); text-transform: uppercase;">Symbol</label>
+          <input type="text" id="btSymbol" class="goal-input" placeholder="AAPL" value="AAPL" style="padding: 8px; margin-top: 5px; text-transform: uppercase;">
+        </div>
+        <div>
+          <label style="font-size: 11px; color: var(--muted); text-transform: uppercase;">Days</label>
+          <input type="number" id="btDays" class="goal-input" value="30" min="5" max="365" style="padding: 8px; margin-top: 5px;">
+        </div>
+        <div>
+          <label style="font-size: 11px; color: var(--muted); text-transform: uppercase;">Capital</label>
+          <input type="number" id="btCapital" class="goal-input" value="10000" min="1000" style="padding: 8px; margin-top: 5px;">
+        </div>
+      </div>
+      <button class="btn" onclick="runBacktest()" style="width: 100%; background: rgba(52, 211, 153, 0.15); color: var(--green); border-color: var(--green);">▶ Run Backtest</button>
+    </div>
+
+    <div id="backtest-loading" style="display: none; text-align: center; padding: 40px; color: var(--muted);">
+      ⏳ Running backtest...
+    </div>
+
+    <div id="backtest-results" style="display: none;">
+      <div class="stats-grid">
+        <div class="stat">
+          <div class="stat-label">Final Capital</div>
+          <div class="stat-value" id="btFinal">$0.00</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Total P&L</div>
+          <div class="stat-value" id="btPnL">$0.00</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Return %</div>
+          <div class="stat-value" id="btReturn">0%</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Trades</div>
+          <div class="stat-value" id="btTrades">0</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Win Rate</div>
+          <div class="stat-value" id="btWinRate">0%</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Profit Factor</div>
+          <div class="stat-value" id="btPF">0.00</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Max Drawdown</div>
+          <div class="stat-value red" id="btDD">0%</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Sharpe Ratio</div>
+          <div class="stat-value" id="btSharpe">0.00</div>
+        </div>
+      </div>
+
+      <div class="charts-row">
+        <div class="chart-panel">
+          <div class="chart-title">Equity Curve</div>
+          <canvas id="btEquityChart"></canvas>
+        </div>
+      </div>
+
+      <div class="chart-panel" style="margin-bottom: 15px;">
+        <div class="chart-title">Trades</div>
+        <table class="positions-table">
+          <thead>
+            <tr>
+              <th>Entry</th>
+              <th>Exit</th>
+              <th>Price</th>
+              <th>Qty</th>
+              <th>P&L</th>
+              <th>Reason</th>
+            </tr>
+          </thead>
+          <tbody id="btTradesBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="backtest-error" style="display: none; background: rgba(248, 113, 113, 0.15); border: 1px solid var(--red); color: var(--red); padding: 12px; border-radius: 8px;"></div>
   </div>
 
   <!-- ===== LOG TAB ===== -->
@@ -852,6 +964,14 @@
     // Win rate
     const wr = (tradeStats.win_rate || 0) * 100;
     document.getElementById('winRate').textContent = wr.toFixed(0) + '%';
+
+    // Avg win/loss
+    const avgWin = tradeStats.avg_win || 0;
+    const avgLoss = tradeStats.avg_loss || 0;
+    const pf = tradeStats.profit_factor || 0;
+    document.getElementById('avgWin').textContent = '$' + Math.abs(avgWin).toFixed(2);
+    document.getElementById('avgLoss').textContent = '$' + Math.abs(avgLoss).toFixed(2);
+    document.getElementById('profitFactor').textContent = pf.toFixed(2);
 
     // Portfolio change
     const change = pv > 10000 ? ((pv - 10000) / 10000 * 100) : 0;
@@ -1154,6 +1274,29 @@
     notifications.unshift({time, msg, type});
     notifications = notifications.slice(0, 100);
     updateNotifications();
+
+    // Play sound
+    if (msg.includes('Closing') || msg.includes('scale out')) playSound('sell');
+    else if (msg.includes('bought')) playSound('buy');
+  }
+
+  // ===== SOUND ALERTS =====
+  function playSound(type) {
+    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    const freq = type === 'buy' ? 800 : type === 'sell' ? 400 : 600;
+    const osc = audioContext.createOscillator();
+    const gain = audioContext.createGain();
+
+    osc.connect(gain);
+    gain.connect(audioContext.destination);
+    osc.frequency.value = freq;
+    osc.type = 'sine';
+
+    gain.gain.setValueAtTime(0.3, audioContext.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+
+    osc.start(audioContext.currentTime);
+    osc.stop(audioContext.currentTime + 0.3);
   }
 
   function updateNotifications() {
@@ -1216,6 +1359,106 @@
       }
     }
   });
+
+  // ===== BACKTESTER =====
+  async function runBacktest() {
+    const strategy = document.getElementById('btStrategy').value;
+    const symbol = document.getElementById('btSymbol').value.toUpperCase();
+    const days = parseInt(document.getElementById('btDays').value);
+    const initial_capital = parseFloat(document.getElementById('btCapital').value);
+
+    if (!symbol || !days || !initial_capital) {
+      addNotification('Please fill all fields', 'error');
+      return;
+    }
+
+    document.getElementById('backtest-results').style.display = 'none';
+    document.getElementById('backtest-error').style.display = 'none';
+    document.getElementById('backtest-loading').style.display = 'block';
+
+    try {
+      const res = await fetch('/api/trading/backtest', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({strategy, symbol, days, initial_capital})
+      });
+      const data = await res.json();
+      document.getElementById('backtest-loading').style.display = 'none';
+
+      if (data.error) {
+        document.getElementById('backtest-error').style.display = 'block';
+        document.getElementById('backtest-error').textContent = '❌ ' + data.error;
+        return;
+      }
+
+      displayBacktestResults(data);
+    } catch (e) {
+      document.getElementById('backtest-loading').style.display = 'none';
+      document.getElementById('backtest-error').style.display = 'block';
+      document.getElementById('backtest-error').textContent = 'Error: ' + e.message;
+    }
+  }
+
+  function displayBacktestResults(data) {
+    const pnl = data.total_pnl;
+    const pnlPct = data.total_pnl_pct;
+
+    document.getElementById('btFinal').textContent = '$' + data.final_capital.toFixed(2);
+    document.getElementById('btPnL').textContent = (pnl >= 0 ? '+' : '') + '$' + pnl.toFixed(2);
+    document.getElementById('btPnL').className = 'stat-value ' + (pnl >= 0 ? 'green' : 'red');
+    document.getElementById('btReturn').textContent = (pnlPct >= 0 ? '+' : '') + pnlPct.toFixed(2) + '%';
+    document.getElementById('btReturn').className = 'stat-value ' + (pnlPct >= 0 ? 'green' : 'red');
+    document.getElementById('btTrades').textContent = data.num_trades;
+    document.getElementById('btWinRate').textContent = data.win_rate.toFixed(1) + '%';
+    document.getElementById('btPF').textContent = data.profit_factor.toFixed(2);
+    document.getElementById('btDD').textContent = data.max_drawdown.toFixed(2) + '%';
+    document.getElementById('btSharpe').textContent = data.sharpe_ratio.toFixed(2);
+
+    // Equity chart
+    const ctx = document.getElementById('btEquityChart');
+    if (window.btEquityChartInstance) window.btEquityChartInstance.destroy();
+    window.btEquityChartInstance = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: data.equity_curve.map((_, i) => i),
+        datasets: [{
+          label: 'Capital',
+          data: data.equity_curve,
+          borderColor: pnl >= 0 ? '#34d399' : '#f87171',
+          backgroundColor: pnl >= 0 ? 'rgba(52, 211, 153, 0.1)' : 'rgba(248, 113, 113, 0.1)',
+          borderWidth: 2,
+          tension: 0.4,
+          fill: true,
+          pointRadius: 0
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: {legend: {display: false}},
+        scales: {
+          y: {grid: {color: 'rgba(255,255,255,0.1)'}, ticks: {color: '#8892a6'}},
+          x: {display: false}
+        }
+      }
+    });
+
+    // Trades table
+    const body = document.getElementById('btTradesBody');
+    body.innerHTML = data.trades.map(t => {
+      const pnl = t.pnl;
+      return `<tr>
+        <td style="font-size: 11px;">${new Date(t.entry_time).toLocaleString('en-US', {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})}</td>
+        <td style="font-size: 11px;">${new Date(t.exit_time).toLocaleString('en-US', {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})}</td>
+        <td>$${t.entry_price.toFixed(2)} → $${t.exit_price.toFixed(2)}</td>
+        <td>${t.qty}</td>
+        <td style="color: ${pnl >= 0 ? 'var(--green)' : 'var(--red)'}; font-weight: 700;">${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}</td>
+        <td style="font-size: 11px; color: var(--muted);">${t.reason}</td>
+      </tr>`;
+    }).join('');
+
+    document.getElementById('backtest-results').style.display = 'block';
+    addNotification(`Backtest complete: ${data.num_trades} trades, ${data.win_rate.toFixed(1)}% win rate`);
+  }
 
   // ===== INIT & LOOP =====
   function updateTime() {

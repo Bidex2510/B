@@ -196,3 +196,24 @@ async def vix():
         return {"vix": round(val, 2) if val else None, "level": level}
     except Exception:
         return {"vix": None, "level": "UNKNOWN"}
+
+
+# ── Backtester ───────────────────────────────────────────────────────────────
+
+class BacktestRequest(BaseModel):
+    strategy: str  # "day", "scalp", etc.
+    symbol: str    # "AAPL", "SPY", etc.
+    days: int = 30  # lookback period
+    initial_capital: float = 10000
+
+
+@router.post("/backtest")
+async def backtest(req: BacktestRequest, request: Request):
+    plugin = request.app.state.jarvis.brain.plugins.get("trading_bot")
+    if plugin is None:
+        raise HTTPException(status_code=503, detail="Trading plugin not loaded")
+
+    from jarvis.plugins.trading.backtester import BacktesterEngine
+    backtester = BacktesterEngine(plugin._bot.strategy_manager)
+    result = backtester.backtest(req.strategy, req.symbol, req.days, req.initial_capital)
+    return result
