@@ -36,6 +36,13 @@ _DEFAULT_ETFS = [
 MIN_AVG_VOLUME = 1_000_000
 
 
+def get_watchlist() -> list[str]:
+    env_list = os.getenv("TRADING_WATCHLIST", "")
+    if env_list.strip():
+        return [s.strip().upper() for s in env_list.split(",") if s.strip()]
+    return _DEFAULT_STOCKS + _DEFAULT_ETFS
+
+
 class StockScanner:
 
     def get_watchlist(self) -> list[str]:

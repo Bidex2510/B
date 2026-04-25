@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Trading Bot - $0</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.0/dist/jspdf.plugin.autotable.min.js"></script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
 
@@ -516,6 +518,44 @@
       padding-bottom: 50px;
     }
 
+    /* Focus mode */
+    body.focus-mode .tabs,
+    body.focus-mode .stats-grid,
+    body.focus-mode .charts-row,
+    body.focus-mode .goal-container,
+    body.focus-mode .vix-meter,
+    body.focus-mode .alert,
+    body.focus-mode .badges,
+    body.focus-mode .time-display { display: none !important; }
+    body.focus-mode .portfolio-value { font-size: 80px; text-align: center; width: 100%; }
+    body.focus-mode .top-bar { justify-content: center; }
+    body.focus-mode .top-controls { justify-content: center; }
+
+    /* Calendar heatmap */
+    .heatmap { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; padding: 8px; }
+    .heatmap-cell { aspect-ratio: 1; border-radius: 3px; background: var(--panel2); display: flex; align-items: center; justify-content: center; font-size: 9px; font-family: 'JetBrains Mono', monospace; color: var(--muted); }
+    .heatmap-cell.win-1 { background: rgba(52, 211, 153, 0.3); }
+    .heatmap-cell.win-2 { background: rgba(52, 211, 153, 0.6); }
+    .heatmap-cell.win-3 { background: rgba(52, 211, 153, 0.9); color: #000; font-weight: 700; }
+    .heatmap-cell.loss-1 { background: rgba(248, 113, 113, 0.3); }
+    .heatmap-cell.loss-2 { background: rgba(248, 113, 113, 0.6); }
+    .heatmap-cell.loss-3 { background: rgba(248, 113, 113, 0.9); color: #fff; font-weight: 700; }
+
+    /* Fear & Greed gauge */
+    .fg-gauge { width: 100%; height: 14px; background: linear-gradient(90deg, #f87171 0%, #fbbf24 50%, #34d399 100%); border-radius: 7px; position: relative; margin: 12px 0; }
+    .fg-marker { position: absolute; top: -4px; width: 4px; height: 22px; background: var(--text); border-radius: 2px; transition: left 0.5s; }
+
+    /* Streak badges */
+    .streak-card { background: var(--panel2); border-radius: 8px; padding: 14px; text-align: center; }
+    .streak-num { font-size: 32px; font-weight: 800; font-family: 'JetBrains Mono', monospace; }
+    .streak-num.win { color: var(--green); }
+    .streak-num.loss { color: var(--red); }
+    .streak-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px; }
+
+    /* Premarket / Earnings rows */
+    .mover-row { display: flex; justify-content: space-between; align-items: center; padding: 8px; border-bottom: 1px solid var(--line); font-size: 12px; font-family: 'JetBrains Mono', monospace; }
+    .mover-row:last-child { border-bottom: none; }
+
     /* Mobile Responsive */
     @media (max-width: 768px) {
       .top-bar {
@@ -642,10 +682,12 @@
     <div class="badge" id="strategyBadge">0 strategies</div>
   </div>
 
-  <div style="display: flex; gap: 8px;">
+  <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
     <div class="time-display" id="timeDisplay"></div>
-    <button class="btn" onclick="showModal('shortcuts')" style="display: none;" id="helpBtn">Help</button>
-    <button class="btn" onclick="cycleTheme()">🎨</button>
+    <button class="btn" onclick="toggleFocusMode()" title="Focus Mode (P&L only)">🎯</button>
+    <button class="btn" onclick="toggleAutoTheme()" title="Auto theme by time of day" id="autoThemeBtn">🌗</button>
+    <button class="btn" onclick="showModal('shortcuts')" id="helpBtn">?</button>
+    <button class="btn" onclick="cycleTheme()" title="Cycle theme">🎨</button>
     <button class="btn" id="mobileToggleBtn" onclick="toggleMobileMode()" style="display: none;">📱</button>
   </div>
 </div>
@@ -720,13 +762,24 @@
       </div>
     </div>
 
-    <div class="vix-meter" style="margin-bottom: 15px;">
-      <div class="stat-label">VIX:</div>
-      <div class="vix-value" id="vixValue">—</div>
-      <div class="vix-bar">
-        <div class="vix-fill" id="vixFill"></div>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px;">
+      <div class="stat">
+        <div class="stat-label">VIX (Volatility)</div>
+        <div class="vix-meter" style="margin-top: 6px;">
+          <div class="vix-value" id="vixValue">—</div>
+          <div class="vix-bar"><div class="vix-fill" id="vixFill"></div></div>
+          <span id="vixLevel" style="font-size: 11px; color: var(--muted);">—</span>
+        </div>
       </div>
-      <span id="vixLevel" style="font-size: 12px; color: var(--muted);">—</span>
+      <div class="stat">
+        <div class="stat-label">Fear & Greed Index</div>
+        <div class="fg-gauge"><div class="fg-marker" id="fgMarker" style="left: 50%;"></div></div>
+        <div style="display: flex; justify-content: space-between; font-size: 11px;">
+          <span style="color: var(--red);">Fear</span>
+          <span id="fgRating" style="color: var(--text); font-weight: 700;">—</span>
+          <span style="color: var(--green);">Greed</span>
+        </div>
+      </div>
     </div>
 
     <div class="charts-row">
@@ -791,8 +844,36 @@
 
   <!-- ===== HISTORY TAB ===== -->
   <div id="history" class="tab-content">
-    <div style="margin-bottom: 15px;">
+    <div style="margin-bottom: 15px; display: flex; gap: 8px; flex-wrap: wrap;">
       <button class="btn" onclick="exportCSV()">📥 Export CSV</button>
+      <button class="btn" onclick="exportPDF()">📄 Export PDF Report</button>
+      <button class="btn" onclick="showSessionSummary()">📊 Session Summary</button>
+    </div>
+
+    <div class="chart-panel" style="margin-bottom: 15px;">
+      <div class="chart-title">Trade Journal</div>
+      <div style="display: grid; grid-template-columns: 1fr 100px 80px auto; gap: 8px; margin-top: 10px; align-items: end;">
+        <div>
+          <label style="font-size: 11px; color: var(--muted);">Note</label>
+          <input type="text" id="journalNote" class="goal-input" placeholder="What did I learn from this trade?" style="padding: 8px;">
+        </div>
+        <div>
+          <label style="font-size: 11px; color: var(--muted);">Symbol</label>
+          <input type="text" id="journalSymbol" class="goal-input" placeholder="AAPL" style="padding: 8px; text-transform: uppercase;">
+        </div>
+        <div>
+          <label style="font-size: 11px; color: var(--muted);">Rating ★</label>
+          <select id="journalRating" class="goal-input" style="padding: 8px;">
+            <option value="5">★★★★★</option>
+            <option value="4">★★★★</option>
+            <option value="3" selected>★★★</option>
+            <option value="2">★★</option>
+            <option value="1">★</option>
+          </select>
+        </div>
+        <button class="btn btn-start" onclick="addJournal()">Add</button>
+      </div>
+      <div id="journalList" style="margin-top: 12px;"></div>
     </div>
     <table class="positions-table">
       <thead>
@@ -842,6 +923,99 @@
         <thead><tr><th>Strategy</th><th>Trades</th><th>Win %</th><th>Avg P&L</th><th>Total P&L</th></tr></thead>
         <tbody id="stratPerfBody"></tbody>
       </table>
+    </div>
+
+    <div class="chart-panel" style="margin-bottom: 15px;">
+      <div class="chart-title">Streaks</div>
+      <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 10px;">
+        <div class="streak-card">
+          <div class="streak-num win" id="curWinStreak">0</div>
+          <div class="streak-label">Current Win Streak</div>
+        </div>
+        <div class="streak-card">
+          <div class="streak-num loss" id="curLossStreak">0</div>
+          <div class="streak-label">Current Loss Streak</div>
+        </div>
+        <div class="streak-card">
+          <div class="streak-num win" id="maxWinStreak">0</div>
+          <div class="streak-label">Best Win Streak</div>
+        </div>
+        <div class="streak-card">
+          <div class="streak-num loss" id="maxLossStreak">0</div>
+          <div class="streak-label">Worst Loss Streak</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="charts-row">
+      <div class="chart-panel">
+        <div class="chart-title">Drawdown</div>
+        <canvas id="ddChart"></canvas>
+        <div style="display: flex; justify-content: space-between; margin-top: 8px; font-size: 12px;">
+          <span>Current: <span id="curDD" style="color: var(--red); font-family: 'JetBrains Mono', monospace;">—</span></span>
+          <span>Max: <span id="maxDD" style="color: var(--red); font-family: 'JetBrains Mono', monospace;">—</span></span>
+        </div>
+      </div>
+      <div class="chart-panel">
+        <div class="chart-title">P&L Calendar Heatmap (last 28 days)</div>
+        <div class="heatmap" id="pnlHeatmap"></div>
+        <div style="font-size: 11px; color: var(--muted); text-align: center; margin-top: 6px;">Greener = bigger win • Redder = bigger loss</div>
+      </div>
+    </div>
+
+    <div class="charts-row">
+      <div class="chart-panel">
+        <div class="chart-title">Kelly Criterion (Optimal Position Size)</div>
+        <div class="stats-grid" style="margin-top: 10px;">
+          <div class="stat">
+            <div class="stat-label">Full Kelly</div>
+            <div class="stat-value" id="kellyFull">—</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Half Kelly (Safer)</div>
+            <div class="stat-value green" id="kellyHalf">—</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Win/Loss Ratio</div>
+            <div class="stat-value" id="kellyWLR">—</div>
+          </div>
+        </div>
+        <div class="help-text" style="margin-top: 8px;">Kelly tells you the mathematically optimal % of capital to risk per trade. Most pros use Half Kelly to reduce volatility.</div>
+      </div>
+
+      <div class="chart-panel">
+        <div class="chart-title">Monte Carlo Simulation (next 20 trades)</div>
+        <div class="stats-grid" style="margin-top: 10px;">
+          <div class="stat">
+            <div class="stat-label">Worst 5%</div>
+            <div class="stat-value red" id="mcWorst">—</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Median Outcome</div>
+            <div class="stat-value" id="mcMedian">—</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Best 5%</div>
+            <div class="stat-value green" id="mcBest">—</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Profit Probability</div>
+            <div class="stat-value" id="mcProb">—</div>
+          </div>
+        </div>
+        <div class="help-text" style="margin-top: 8px;">200 random simulations of your next 20 trades based on past P&L distribution.</div>
+      </div>
+    </div>
+
+    <div class="charts-row">
+      <div class="chart-panel">
+        <div class="chart-title">Pre-Market Movers</div>
+        <div id="premarketList" style="margin-top: 10px;"></div>
+      </div>
+      <div class="chart-panel">
+        <div class="chart-title">Upcoming Earnings</div>
+        <div id="earningsList" style="margin-top: 10px;"></div>
+      </div>
     </div>
 
     <div class="chart-panel" style="margin-bottom: 15px;">
@@ -1062,6 +1236,14 @@
 </div>
 
 <!-- Modals -->
+<div id="sessionSummaryModal" class="modal">
+  <div class="modal-content" style="position: relative; max-width: 600px;">
+    <button class="modal-close" onclick="closeModal('sessionSummary')">×</button>
+    <div class="modal-title">📊 Session Summary</div>
+    <div id="sessionSummaryContent" style="font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.8;"></div>
+  </div>
+</div>
+
 <div id="shortcutsModal" class="modal">
   <div class="modal-content" style="position: relative;">
     <button class="modal-close" onclick="closeModal('shortcuts')">×</button>
@@ -1978,24 +2160,304 @@
 
   // main refresh handled by fullRefresh interval
 
+  // ===== FEAR & GREED =====
+  async function fetchFearGreed() {
+    try {
+      const res = await fetch('/api/trading/fear-greed');
+      const data = await res.json();
+      if (data.score !== null) {
+        document.getElementById('fgMarker').style.left = data.score + '%';
+        document.getElementById('fgRating').textContent = `${data.rating} (${data.score})`;
+      }
+    } catch (e) {}
+  }
+
+  // ===== DRAWDOWN =====
+  async function fetchDrawdown() {
+    try {
+      const res = await fetch('/api/trading/drawdown');
+      const data = await res.json();
+      document.getElementById('curDD').textContent = data.current_drawdown.toFixed(2) + '%';
+      document.getElementById('maxDD').textContent = data.max_drawdown.toFixed(2) + '%';
+
+      const ctx = document.getElementById('ddChart');
+      if (!ctx || !data.curve.length) return;
+      if (window.ddChartInst) window.ddChartInst.destroy();
+      window.ddChartInst = new Chart(ctx, {
+        type: 'line',
+        data: {labels: data.curve.map((_,i)=>i), datasets:[{
+          data: data.curve, borderColor:'#f87171', backgroundColor:'rgba(248,113,113,0.2)',
+          fill:true, tension:0.3, pointRadius:0, borderWidth:2}]},
+        options: {responsive:true, plugins:{legend:{display:false}},
+          scales:{y:{ticks:{color:'#8892a6', callback:v=>v+'%'}, grid:{color:'rgba(255,255,255,0.05)'}},
+                  x:{display:false}}}
+      });
+    } catch (e) {}
+  }
+
+  // ===== STREAKS =====
+  async function fetchStreaks() {
+    try {
+      const res = await fetch('/api/trading/streaks');
+      const d = await res.json();
+      document.getElementById('curWinStreak').textContent = d.win_streak;
+      document.getElementById('curLossStreak').textContent = d.loss_streak;
+      document.getElementById('maxWinStreak').textContent = d.max_win_streak;
+      document.getElementById('maxLossStreak').textContent = d.max_loss_streak;
+    } catch (e) {}
+  }
+
+  // ===== KELLY =====
+  async function fetchKelly() {
+    try {
+      const res = await fetch('/api/trading/kelly');
+      const d = await res.json();
+      document.getElementById('kellyFull').textContent = d.kelly_pct + '%';
+      document.getElementById('kellyHalf').textContent = d.half_kelly_pct + '%';
+      document.getElementById('kellyWLR').textContent = d.win_loss_ratio;
+    } catch (e) {}
+  }
+
+  // ===== MONTE CARLO =====
+  async function fetchMonteCarlo() {
+    try {
+      const res = await fetch('/api/trading/monte-carlo');
+      const d = await res.json();
+      if (d.error) {
+        document.getElementById('mcMedian').textContent = 'Need 10+ trades';
+        return;
+      }
+      document.getElementById('mcWorst').textContent = '$' + d.worst_5pct.toFixed(0);
+      document.getElementById('mcMedian').textContent = '$' + d.median.toFixed(0);
+      document.getElementById('mcBest').textContent = '$' + d.best_5pct.toFixed(0);
+      document.getElementById('mcProb').textContent = d.prob_profit + '%';
+    } catch (e) {}
+  }
+
+  // ===== PREMARKET MOVERS =====
+  async function fetchPremarket() {
+    try {
+      const res = await fetch('/api/trading/premarket');
+      const d = await res.json();
+      const el = document.getElementById('premarketList');
+      if (!el) return;
+      if (!d.movers.length) { el.innerHTML = '<div style="color:var(--muted); text-align:center; padding:20px;">No pre-market data</div>'; return; }
+      el.innerHTML = d.movers.map(m => `<div class="mover-row">
+        <span style="color:var(--accent); font-weight:700;">${m.symbol}</span>
+        <span>$${m.pre_price.toFixed(2)}</span>
+        <span style="color:${m.change_pct>=0?'var(--green)':'var(--red)'};">${m.change_pct>=0?'+':''}${m.change_pct.toFixed(2)}%</span>
+      </div>`).join('');
+    } catch (e) {}
+  }
+
+  // ===== EARNINGS =====
+  async function fetchEarnings() {
+    try {
+      const res = await fetch('/api/trading/earnings');
+      const d = await res.json();
+      const el = document.getElementById('earningsList');
+      if (!el) return;
+      if (!d.earnings.length) { el.innerHTML = '<div style="color:var(--muted); text-align:center; padding:20px;">No upcoming earnings</div>'; return; }
+      el.innerHTML = d.earnings.map(e => `<div class="mover-row">
+        <span style="color:var(--accent); font-weight:700;">${e.symbol}</span>
+        <span style="color:var(--muted);">${e.date}</span>
+      </div>`).join('');
+    } catch (e) {}
+  }
+
+  // ===== P&L CALENDAR HEATMAP =====
+  async function fetchCalendarPnL() {
+    try {
+      const res = await fetch('/api/trading/calendar-pnl');
+      const d = await res.json();
+      const el = document.getElementById('pnlHeatmap');
+      if (!el) return;
+      const days = [];
+      const today = new Date();
+      for (let i = 27; i >= 0; i--) {
+        const dt = new Date(today);
+        dt.setDate(dt.getDate() - i);
+        const key = dt.toISOString().slice(0, 10);
+        days.push({date: key, pnl: d.by_date[key] || 0, day: dt.getDate()});
+      }
+      const max = Math.max(...days.map(x => Math.abs(x.pnl)), 1);
+      el.innerHTML = days.map(x => {
+        let cls = '';
+        if (x.pnl > 0) cls = `win-${x.pnl > max*0.66 ? 3 : x.pnl > max*0.33 ? 2 : 1}`;
+        else if (x.pnl < 0) cls = `loss-${Math.abs(x.pnl) > max*0.66 ? 3 : Math.abs(x.pnl) > max*0.33 ? 2 : 1}`;
+        const tip = `${x.date}: ${x.pnl>=0?'+':''}$${x.pnl.toFixed(2)}`;
+        return `<div class="heatmap-cell ${cls}" title="${tip}">${x.day}</div>`;
+      }).join('');
+    } catch (e) {}
+  }
+
+  // ===== TRADE JOURNAL =====
+  async function loadJournal() {
+    try {
+      const res = await fetch('/api/trading/journal');
+      const d = await res.json();
+      const el = document.getElementById('journalList');
+      if (!el) return;
+      if (!d.entries.length) {
+        el.innerHTML = '<div style="color:var(--muted); padding:12px; text-align:center;">No journal entries yet</div>';
+        return;
+      }
+      el.innerHTML = d.entries.map(e => `<div style="background:var(--panel2); padding:10px; border-radius:6px; margin-top:6px; border-left:3px solid var(--accent);">
+        <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--muted);">
+          <span>${e.symbol || '—'} · ${'★'.repeat(e.rating)}</span>
+          <span>${new Date(e.ts).toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}</span>
+        </div>
+        <div style="margin-top:4px; font-size:13px;">${e.note}</div>
+      </div>`).join('');
+    } catch (e) {}
+  }
+
+  async function addJournal() {
+    const note = document.getElementById('journalNote').value.trim();
+    if (!note) { addNotification('Note cannot be empty', 'error'); return; }
+    const symbol = document.getElementById('journalSymbol').value.toUpperCase();
+    const rating = parseInt(document.getElementById('journalRating').value);
+    await fetch('/api/trading/journal/add', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({note, symbol, rating})});
+    document.getElementById('journalNote').value = '';
+    document.getElementById('journalSymbol').value = '';
+    addNotification('Journal entry saved');
+    loadJournal();
+  }
+
+  // ===== FOCUS MODE =====
+  function toggleFocusMode() {
+    document.body.classList.toggle('focus-mode');
+    localStorage.setItem('focusMode', document.body.classList.contains('focus-mode'));
+  }
+
+  // ===== AUTO THEME =====
+  let autoThemeEnabled = localStorage.getItem('autoTheme') === 'true';
+
+  function toggleAutoTheme() {
+    autoThemeEnabled = !autoThemeEnabled;
+    localStorage.setItem('autoTheme', autoThemeEnabled);
+    document.getElementById('autoThemeBtn').style.background = autoThemeEnabled ? 'var(--accent)' : '';
+    document.getElementById('autoThemeBtn').style.color = autoThemeEnabled ? 'var(--bg)' : '';
+    if (autoThemeEnabled) applyAutoTheme();
+    addNotification(autoThemeEnabled ? 'Auto theme ON' : 'Auto theme OFF');
+  }
+
+  function applyAutoTheme() {
+    if (!autoThemeEnabled) return;
+    const h = new Date().getHours();
+    const theme = (h >= 7 && h < 19) ? 'light' : 'dark';
+    if (localStorage.getItem('theme') !== theme) {
+      localStorage.setItem('theme', theme);
+      document.documentElement.setAttribute('data-theme', theme);
+    }
+  }
+
+  // ===== PDF EXPORT =====
+  function exportPDF() {
+    if (!window.jspdf) { addNotification('PDF library not loaded', 'error'); return; }
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+    const stats = botStatus.trade_stats || {};
+    const trades = botStatus.recent_trades || [];
+
+    doc.setFontSize(20); doc.text('Trading Bot Report', 14, 20);
+    doc.setFontSize(11); doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 28);
+    doc.text(`Mode: ${botStatus.mode || 'PAPER'}`, 14, 36);
+
+    doc.setFontSize(14); doc.text('Performance', 14, 50);
+    doc.setFontSize(10);
+    let y = 58;
+    [
+      ['Portfolio Value', '$' + (botStatus.portfolio_value || 0).toFixed(2)],
+      ['Total P&L', '$' + (stats.total_pnl || 0).toFixed(2)],
+      ['Win Rate', (stats.win_rate || 0).toFixed(1) + '%'],
+      ['Total Trades', stats.total || 0],
+      ['Avg Win', '$' + (stats.avg_win || 0).toFixed(2)],
+      ['Avg Loss', '$' + (stats.avg_loss || 0).toFixed(2)],
+      ['Profit Factor', (stats.profit_factor || 0).toFixed(2)],
+    ].forEach(([k, v]) => { doc.text(`${k}: ${v}`, 20, y); y += 6; });
+
+    if (trades.length && doc.autoTable) {
+      doc.autoTable({
+        startY: y + 10,
+        head: [['Date', 'Symbol', 'Strategy', 'P&L %', 'P&L $', 'Reason']],
+        body: trades.slice(0, 20).map(t => [
+          (t.exit_date || '').slice(0, 10),
+          t.symbol, t.strategy || '',
+          (t.pnl_pct || 0).toFixed(2) + '%',
+          '$' + (t.pnl || 0).toFixed(2),
+          (t.reason || '').slice(0, 30)
+        ]),
+        styles: {fontSize: 8},
+      });
+    }
+
+    doc.save('trading-report-' + new Date().toISOString().slice(0, 10) + '.pdf');
+    addNotification('PDF report downloaded');
+  }
+
+  // ===== SESSION SUMMARY =====
+  function showSessionSummary() {
+    const stats = botStatus.trade_stats || {};
+    const start = botStatus.session_start ? new Date(botStatus.session_start) : null;
+    const elapsed = start ? Math.round((new Date() - start) / 60000) : 0;
+    const html = `
+      <div>Session Length: <b>${Math.floor(elapsed/60)}h ${elapsed%60}m</b></div>
+      <div>Mode: <b>${botStatus.mode || 'PAPER'}</b></div>
+      <div>Total Trades: <b>${stats.total || 0}</b></div>
+      <div>Wins: <span style="color:var(--green);">${stats.wins || 0}</span> / Losses: <span style="color:var(--red);">${stats.losses || 0}</span></div>
+      <div>Win Rate: <b>${(stats.win_rate || 0).toFixed(1)}%</b></div>
+      <div>Total P&L: <b style="color:${(stats.total_pnl||0)>=0?'var(--green)':'var(--red)'};">$${(stats.total_pnl || 0).toFixed(2)}</b></div>
+      <div>Profit Factor: <b>${(stats.profit_factor || 0).toFixed(2)}</b></div>
+      <div>Avg Win: <span style="color:var(--green);">$${(stats.avg_win || 0).toFixed(2)}</span></div>
+      <div>Avg Loss: <span style="color:var(--red);">$${(stats.avg_loss || 0).toFixed(2)}</span></div>
+      <div>Best Strategy: <b>${botStatus.best_strategy || '—'}</b></div>
+      <div>Open Positions: <b>${(botStatus.positions || []).length}</b></div>
+    `;
+    document.getElementById('sessionSummaryContent').innerHTML = html;
+    showModal('sessionSummary');
+  }
+
   // ===== EXTENDED REFRESH =====
   function fullRefresh() {
     fetchStatus().then(() => updateAnalytics());
     fetchVIX();
+    fetchFearGreed();
     fetchMarketIndicators();
     loadAlerts();
+    fetchStreaks();
+    fetchKelly();
+    fetchDrawdown();
+    fetchCalendarPnL();
+    loadJournal();
+    applyAutoTheme();
   }
 
   // Initial load
   initTheme();
   initMobileMode();
+  if (localStorage.getItem('focusMode') === 'true') document.body.classList.add('focus-mode');
+  if (autoThemeEnabled) {
+    document.getElementById('autoThemeBtn').style.background = 'var(--accent)';
+    document.getElementById('autoThemeBtn').style.color = 'var(--bg)';
+    applyAutoTheme();
+  }
   fetchStatus();
   fetchVIX();
+  fetchFearGreed();
   fetchMarketIndicators();
   loadStrategyToggles();
   loadWatchlist();
   loadAlerts();
   loadPerformanceCharts();
+  fetchStreaks();
+  fetchKelly();
+  fetchMonteCarlo();
+  fetchDrawdown();
+  fetchPremarket();
+  fetchEarnings();
+  fetchCalendarPnL();
+  loadJournal();
   setConnectionStatus(navigator.onLine);
   window.addEventListener('online', () => setConnectionStatus(true));
   window.addEventListener('offline', () => setConnectionStatus(false));
@@ -2003,6 +2465,9 @@
   setInterval(fullRefresh, 10000);
   setInterval(loadStrategyToggles, 30000);
   setInterval(loadWatchlist, 60000);
+  setInterval(fetchMonteCarlo, 120000);
+  setInterval(fetchPremarket, 60000);
+  setInterval(fetchEarnings, 300000);
 </script>
 
 </body>

@@ -477,3 +477,192 @@ async def telegram_test(request: Request):
     bot = _bot(request)
     bot._notifier.send("✅ Jarvis Trading Bot connected! Test message from dashboard.")
     return {"message": "Test message sent to Telegram"}
+
+
+# ── Fear & Greed Index (CNN, free) ───────────────────────────────────────────
+
+@router.get("/fear-greed")
+async def fear_greed():
+    import httpx
+    try:
+        res = httpx.get(
+            "https://production.dataviz.cnn.io/index/fearandgreed/graphdata/",
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=8,
+        )
+        data = res.json()
+        score = data["fear_and_greed"]["score"]
+        rating = data["fear_and_greed"]["rating"]
+        return {"score": round(score, 1), "rating": rating.replace("_", " ").title()}
+    except Exception:
+        return {"score": None, "rating": "Unknown"}
+
+
+# ── Pre-Market Movers ────────────────────────────────────────────────────────
+
+@router.get("/premarket")
+async def premarket_movers():
+    from jarvis.plugins.trading.scanner import get_watchlist
+    symbols = get_watchlist()[:20]
+    movers = []
+    for sym in symbols:
+        try:
+            t = yf.Ticker(sym)
+            info = t.fast_info
+            pre = getattr(info, "pre_market_price", None)
+            prev = getattr(info, "previous_close", None)
+            if pre and prev:
+                chg = (pre - prev) / prev * 100
+                movers.append({"symbol": sym, "pre_price": round(pre, 2),
+                                "change_pct": round(chg, 2), "prev_close": round(prev, 2)})
+        except Exception:
+            pass
+    movers.sort(key=lambda x: abs(x["change_pct"]), reverse=True)
+    return {"movers": movers[:10]}
+
+
+# ── Streaks ──────────────────────────────────────────────────────────────────
+
+@router.get("/streaks")
+async def streaks(request: Request):
+    trades = _bot(request)._trade_log.recent_trades(200)
+    if not trades:
+        return {"win_streak": 0, "loss_streak": 0, "max_win_streak": 0, "max_loss_streak": 0}
+    current_win = current_loss = max_win = max_loss = 0
+    for t in reversed(trades):
+        if t.get("pnl", 0) > 0:
+            current_win += 1
+            current_loss = 0
+        else:
+            current_loss += 1
+            current_win = 0
+        max_win = max(max_win, current_win)
+        max_loss = max(max_loss, current_loss)
+    return {"win_streak": current_win, "loss_streak": current_loss,
+            "max_win_streak": max_win, "max_loss_streak": max_loss}
+
+
+# ── Drawdown ─────────────────────────────────────────────────────────────────
+
+@router.get("/drawdown")
+async def drawdown_data(request: Request):
+    import pandas as pd
+    history = _bot(request)._trade_log.equity_history()
+    if len(history) < 2:
+        return {"max_drawdown": 0, "current_drawdown": 0, "curve": []}
+    vals = pd.Series([h["v"] for h in history])
+    running_max = vals.expanding().max()
+    dd = ((vals - running_max) / running_max * 100).round(2)
+    return {
+        "max_drawdown": float(dd.min()),
+        "current_drawdown": float(dd.iloc[-1]),
+        "curve": dd.tolist(),
+    }
+
+
+# ── Kelly Criterion ──────────────────────────────────────────────────────────
+
+@router.get("/kelly")
+async def kelly(request: Request):
+    s = _bot(request)._trade_log.stats()
+    w = s.get("win_rate", 0) / 100
+    avg_win = s.get("avg_win", 0)
+    avg_loss = s.get("avg_loss", 1)
+    if avg_loss == 0 or w == 0:
+        return {"kelly_pct": 0, "half_kelly_pct": 0}
+    b = avg_win / avg_loss  # win/loss ratio
+    k = (b * w - (1 - w)) / b
+    k = max(0, min(k, 0.5))  # cap at 50%
+    return {"kelly_pct": round(k * 100, 1), "half_kelly_pct": round(k * 50, 1),
+            "win_rate": round(w * 100, 1), "win_loss_ratio": round(b, 2)}
+
+
+# ── Monte Carlo Simulation ────────────────────────────────────────────────────
+
+@router.get("/monte-carlo")
+async def monte_carlo(request: Request):
+    import random
+    trades = _bot(request)._trade_log.recent_trades(200)
+    if len(trades) < 10:
+        return {"error": "Need at least 10 trades for simulation"}
+    pnls = [t.get("pnl", 0) for t in trades]
+    capital = _bot(request)._client.get_portfolio_value() if _bot(request).is_running else 10000
+    simulations = 200
+    horizon = 20
+    paths = []
+    for _ in range(simulations):
+        path = [capital]
+        for _ in range(horizon):
+            path.append(path[-1] + random.choice(pnls))
+        paths.append(path[-1])
+    paths.sort()
+    return {
+        "initial": capital,
+        "worst_5pct": round(paths[int(simulations * 0.05)], 2),
+        "median": round(paths[simulations // 2], 2),
+        "best_5pct": round(paths[int(simulations * 0.95)], 2),
+        "prob_profit": round(len([p for p in paths if p > capital]) / simulations * 100, 1),
+    }
+
+
+# ── Calendar P&L (for heatmap) ────────────────────────────────────────────────
+
+@router.get("/calendar-pnl")
+async def calendar_pnl(request: Request):
+    trades = _bot(request)._trade_log.recent_trades(500)
+    cal: dict[str, float] = {}
+    for t in trades:
+        try:
+            day = t.get("exit_date", "")[:10]
+            cal[day] = round(cal.get(day, 0) + t.get("pnl", 0), 2)
+        except Exception:
+            pass
+    return {"by_date": cal}
+
+
+# ── Trade Journal ─────────────────────────────────────────────────────────────
+
+_journal: list[dict] = []
+
+
+class JournalEntry(BaseModel):
+    note: str
+    symbol: str = ""
+    rating: int = 3  # 1-5
+
+
+@router.get("/journal")
+async def get_journal():
+    return {"entries": list(reversed(_journal[-50:]))}
+
+
+@router.post("/journal/add")
+async def add_journal(req: JournalEntry):
+    _journal.append({
+        "note": req.note,
+        "symbol": req.symbol.upper(),
+        "rating": req.rating,
+        "ts": datetime.now().isoformat(timespec="seconds"),
+    })
+    return {"message": "Note saved"}
+
+
+# ── Earnings Calendar ────────────────────────────────────────────────────────
+
+@router.get("/earnings")
+async def earnings(request: Request):
+    from jarvis.plugins.trading.scanner import get_watchlist
+    symbols = get_watchlist()[:30]
+    upcoming = []
+    for sym in symbols:
+        try:
+            t = yf.Ticker(sym)
+            cal = t.calendar
+            if cal is not None and not cal.empty:
+                date_val = cal.columns[0] if hasattr(cal, 'columns') else None
+                if date_val:
+                    upcoming.append({"symbol": sym, "date": str(date_val)[:10]})
+        except Exception:
+            pass
+    upcoming.sort(key=lambda x: x["date"])
+    return {"earnings": upcoming[:20]}

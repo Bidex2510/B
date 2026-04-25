@@ -24,7 +24,7 @@ class ScalpStrategy(Strategy):
     bar_interval = TF_1M
     bar_period = "1d"
     target_hold_days = 0.02
-    min_score_to_buy = 0.65
+    min_score_to_buy = 0.58  # lowered for more frequent entries
     intraday = True
 
     def score(self, symbol, df, sentiment, fundamental_score):
