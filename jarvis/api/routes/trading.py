@@ -1086,3 +1086,107 @@ async def freeze_position(symbol: str):
 @router.get("/position/frozen-list")
 async def frozen_positions():
     return {"frozen": list(_frozen_positions)}
+
+
+# ── Holiday / Market-Hours Status ────────────────────────────────────────────
+
+@router.get("/market-status")
+async def market_status():
+    import pytz
+    et = pytz.timezone("America/New_York")
+    now = datetime.now(et)
+    weekday = now.weekday()  # 0=Mon .. 6=Sun
+    # rough US market holidays (fixed dates only)
+    holidays_md = {(1, 1), (1, 15), (2, 19), (5, 27), (6, 19),
+                   (7, 4), (9, 2), (11, 28), (12, 25)}
+    is_holiday = (now.month, now.day) in holidays_md
+    is_weekend = weekday >= 5
+    open_t = now.replace(hour=9, minute=30, second=0, microsecond=0)
+    close_t = now.replace(hour=16, minute=0, second=0, microsecond=0)
+    is_open = (not is_weekend) and (not is_holiday) and (open_t <= now <= close_t)
+
+    if is_holiday:
+        status = "HOLIDAY"
+    elif is_weekend:
+        status = "WEEKEND"
+    elif now < open_t:
+        status = "PRE-MARKET"
+    elif now > close_t:
+        status = "AFTER-HOURS"
+    else:
+        status = "OPEN"
+
+    secs_to_open = max(0, (open_t - now).total_seconds())
+    secs_to_close = max(0, (close_t - now).total_seconds())
+    return {
+        "status": status, "is_open": is_open,
+        "now_et": now.strftime("%Y-%m-%d %H:%M:%S"),
+        "secs_to_open": int(secs_to_open),
+        "secs_to_close": int(secs_to_close),
+    }
+
+
+# ── Symbol Sparkline (last 30 1-min bars) ────────────────────────────────────
+
+@router.get("/sparkline/{symbol}")
+async def sparkline(symbol: str):
+    try:
+        df = yf.Ticker(symbol).history(period="1d", interval="1m").tail(30)
+        if df.empty:
+            return {"closes": []}
+        return {"closes": [round(float(c), 2) for c in df["Close"].tolist()]}
+    except Exception:
+        return {"closes": []}
+
+
+# ── ATR (Average True Range) per symbol ──────────────────────────────────────
+
+@router.get("/atr/{symbol}")
+async def atr(symbol: str, period: int = 14):
+    try:
+        df = yf.Ticker(symbol).history(period="1mo", interval="1d")
+        if len(df) < period:
+            return {"atr": 0}
+        tr = (df["High"] - df["Low"]).combine((df["High"] - df["Close"].shift(1)).abs(), max)
+        tr = tr.combine((df["Low"] - df["Close"].shift(1)).abs(), max)
+        atr_val = float(tr.tail(period).mean())
+        return {"atr": round(atr_val, 2)}
+    except Exception:
+        return {"atr": 0}
+
+
+# ── Trigger Manual Scan ──────────────────────────────────────────────────────
+
+@router.post("/scan-now")
+async def scan_now(request: Request):
+    bot = _bot(request)
+    if not bot.is_running:
+        return {"message": "Bot not running, cannot scan"}
+    try:
+        # If bot exposes a scan method, call it
+        if hasattr(bot, "_scan_once"):
+            bot._scan_once()
+            return {"message": "Manual scan triggered"}
+    except Exception as e:
+        return {"message": f"Scan error: {e}"}
+    return {"message": "Scan request acknowledged (will run on next cycle)"}
+
+
+# ── Pinned Symbols (server-side store) ───────────────────────────────────────
+
+_pinned: set[str] = set()
+
+
+@router.get("/pinned")
+async def get_pinned():
+    return {"pinned": list(_pinned)}
+
+
+@router.post("/pinned/{symbol}")
+async def toggle_pin(symbol: str):
+    sym = symbol.upper()
+    if sym in _pinned:
+        _pinned.discard(sym)
+        return {"pinned": False}
+    _pinned.add(sym)
+    return {"pinned": True}

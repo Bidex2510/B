@@ -623,6 +623,40 @@
     .pin-star { cursor: pointer; color: var(--muted); margin-right: 4px; }
     .pin-star.pinned { color: var(--yellow); }
 
+    /* Market status banner */
+    .market-banner { padding: 6px 14px; text-align: center; font-size: 12px; font-weight: 700; letter-spacing: 0.5px; }
+    .market-banner.open { background: rgba(52,211,153,0.15); color: var(--green); }
+    .market-banner.closed { background: rgba(248,113,113,0.15); color: var(--red); }
+    .market-banner.premarket { background: rgba(96,165,250,0.15); color: var(--blue); }
+    .market-banner.afterhours { background: rgba(251,191,36,0.15); color: var(--yellow); }
+
+    /* Sparkline */
+    .sparkline { width: 60px; height: 20px; vertical-align: middle; }
+
+    /* Tooltip */
+    [data-tip] { position: relative; cursor: help; border-bottom: 1px dotted var(--muted); }
+    [data-tip]:hover::after {
+      content: attr(data-tip); position: absolute; bottom: 100%; left: 0; z-index: 100;
+      background: var(--panel2); color: var(--text); padding: 6px 10px; border-radius: 4px;
+      font-size: 11px; white-space: nowrap; border: 1px solid var(--line); box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    }
+
+    /* Recent activity sidebar */
+    #activitySidebar { position: fixed; top: 0; right: -360px; width: 360px; height: 100vh;
+      background: var(--panel); border-left: 1px solid var(--line); transition: right 0.3s;
+      z-index: 1500; overflow-y: auto; padding: 14px; }
+    #activitySidebar.open { right: 0; }
+    .sidebar-toggle { position: fixed; top: 50%; right: 0; background: var(--accent); color: var(--bg);
+      padding: 14px 6px; border-radius: 6px 0 0 6px; cursor: pointer; z-index: 1499; font-weight: 700; }
+
+    /* Theme dropdown */
+    .theme-picker { background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+      padding: 4px 0; position: absolute; right: 0; top: 100%; min-width: 130px; display: none; z-index: 100; }
+    .theme-picker.show { display: block; }
+    .theme-option { padding: 8px 12px; cursor: pointer; font-size: 12px; }
+    .theme-option:hover { background: var(--panel2); }
+    .theme-option.active { color: var(--accent); font-weight: 700; }
+
     /* Mobile Responsive */
     @media (max-width: 768px) {
       .top-bar {
@@ -728,12 +762,32 @@
 
 <div class="paper-watermark" id="watermark"></div>
 
+<!-- Market Status Banner -->
+<div class="market-banner closed" id="marketBanner">Loading market status...</div>
+
 <!-- Daily P&L Progress Bar -->
 <div class="top-progress"><div class="top-progress-fill green" id="dayProgressFill" style="width: 0%;"></div></div>
 
 <!-- Live Ticker Tape -->
 <div class="ticker-tape" id="tickerTape">
   <div class="ticker-track" id="tickerTrack"><span class="ticker-item">Loading market data...</span></div>
+</div>
+
+<!-- Recent Activity Sidebar -->
+<div class="sidebar-toggle" onclick="document.getElementById('activitySidebar').classList.toggle('open')">≡</div>
+<div id="activitySidebar">
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+    <h3 style="font-size: 14px;">📡 Live Activity</h3>
+    <button class="btn" onclick="document.getElementById('activitySidebar').classList.remove('open')">×</button>
+  </div>
+  <div style="margin-bottom: 12px;">
+    <button class="btn" onclick="sendCmd('/api/trading/scan-now')" style="width: 100%;">🔄 Scan Now</button>
+  </div>
+  <div style="margin-bottom: 12px;">
+    <label style="font-size: 11px; color: var(--muted);">Voice Announcer</label>
+    <button class="btn" onclick="toggleVoice()" id="voiceBtn" style="width: 100%; margin-top: 4px;">🔊 Enable</button>
+  </div>
+  <div id="sidebarActivity" style="margin-top: 10px;"></div>
 </div>
 
 <!-- Top Bar -->
@@ -1736,6 +1790,17 @@
       return;
     }
 
+    // After render, load sparklines and apply pinned state
+    setTimeout(() => {
+      positions.forEach(p => loadSparkline(p.symbol, 'spark-' + p.symbol));
+      fetch('/api/trading/pinned').then(r => r.json()).then(d => {
+        d.pinned.forEach(s => {
+          const star = document.querySelector('.pin-star[data-sym="' + s + '"]');
+          if (star) star.classList.add('pinned');
+        });
+      });
+    }, 100);
+
     body.innerHTML = positions.map(p => {
       const pnlPct = p.pnl_pct || 0;
       const pnlDol = p.pnl_dollars || 0;
@@ -1756,7 +1821,11 @@
       targetPct = Math.max(0, Math.min(100, targetPct));
 
       return `<tr oncontextmenu="showContextMenu(event, '${p.symbol}'); return false;">
-        <td><span class="symbol" onclick="openChart('${p.symbol}')" oncontextmenu="copyToClipboard('${p.symbol}'); return false;" title="Click: chart · Right-click: copy">${p.symbol}</span></td>
+        <td>
+          <span class="pin-star" onclick="togglePin('${p.symbol}', this)" data-sym="${p.symbol}">★</span>
+          <span class="symbol" onclick="openChart('${p.symbol}')" oncontextmenu="copyToClipboard('${p.symbol}'); return false;" title="Click: chart">${p.symbol}</span>
+          <canvas class="sparkline" id="spark-${p.symbol}"></canvas>
+        </td>
         <td>${p.quantity.toFixed(0)}</td>
         <td>$${p.avg_cost.toFixed(2)}</td>
         <td>$${p.current_price.toFixed(2)}</td>
@@ -1973,10 +2042,19 @@
     notifications.unshift({time, msg, type});
     notifications = notifications.slice(0, 100);
     updateNotifications();
+    if (typeof updateSidebarActivity === 'function') updateSidebarActivity();
 
-    // Play sound
-    if (msg.includes('Closing') || msg.includes('scale out')) playSound('sell');
-    else if (msg.includes('bought')) playSound('buy');
+    // Play sound + voice
+    if (msg.includes('Closing') || msg.includes('scale out')) { playSound('sell'); speak(msg); }
+    else if (msg.includes('bought')) { playSound('buy'); speak(msg); }
+    else if (msg.includes('🎉')) speak(msg);
+  }
+
+  // ===== PIN TOGGLE =====
+  async function togglePin(symbol, el) {
+    const res = await fetch('/api/trading/pinned/' + symbol, {method:'POST'});
+    const d = await res.json();
+    el.classList.toggle('pinned', d.pinned);
   }
 
   // ===== SOUND ALERTS =====
@@ -2914,6 +2992,79 @@
     addNotification('JSON exported');
   }
 
+  // ===== MARKET STATUS BANNER =====
+  async function fetchMarketStatus() {
+    try {
+      const res = await fetch('/api/trading/market-status');
+      const d = await res.json();
+      const banner = document.getElementById('marketBanner');
+      if (!banner) return;
+      const labels = {
+        OPEN: '🟢 MARKET OPEN — closes in ' + Math.floor(d.secs_to_close/3600) + 'h ' + Math.floor((d.secs_to_close%3600)/60) + 'm',
+        'PRE-MARKET': '🔵 PRE-MARKET — opens in ' + Math.floor(d.secs_to_open/3600) + 'h ' + Math.floor((d.secs_to_open%3600)/60) + 'm',
+        'AFTER-HOURS': '🟡 AFTER-HOURS — closed for the day',
+        WEEKEND: '🔴 WEEKEND — market closed',
+        HOLIDAY: '🔴 HOLIDAY — market closed',
+      };
+      const cls = {OPEN:'open', 'PRE-MARKET':'premarket', 'AFTER-HOURS':'afterhours', WEEKEND:'closed', HOLIDAY:'closed'};
+      banner.textContent = labels[d.status] || d.status;
+      banner.className = 'market-banner ' + (cls[d.status] || 'closed');
+    } catch (e) {}
+  }
+
+  // ===== VOICE ANNOUNCER =====
+  let _voiceEnabled = localStorage.getItem('voice') === 'true';
+  function toggleVoice() {
+    _voiceEnabled = !_voiceEnabled;
+    localStorage.setItem('voice', _voiceEnabled);
+    document.getElementById('voiceBtn').textContent = _voiceEnabled ? '🔇 Disable' : '🔊 Enable';
+    document.getElementById('voiceBtn').style.background = _voiceEnabled ? 'var(--accent)' : '';
+    if (_voiceEnabled) speak('Voice announcer enabled');
+  }
+  function speak(text) {
+    if (!_voiceEnabled || !window.speechSynthesis) return;
+    const u = new SpeechSynthesisUtterance(text);
+    u.rate = 1.1; u.volume = 0.7;
+    speechSynthesis.speak(u);
+  }
+
+  // ===== SPARKLINE for position rows =====
+  async function loadSparkline(symbol, canvasId) {
+    try {
+      const res = await fetch('/api/trading/sparkline/' + symbol);
+      const d = await res.json();
+      const canvas = document.getElementById(canvasId);
+      if (!canvas || !d.closes.length) return;
+      const ctx = canvas.getContext('2d');
+      const w = canvas.width = 60, h = canvas.height = 20;
+      ctx.clearRect(0, 0, w, h);
+      const min = Math.min(...d.closes), max = Math.max(...d.closes);
+      const range = max - min || 1;
+      const isUp = d.closes[d.closes.length - 1] >= d.closes[0];
+      ctx.strokeStyle = isUp ? '#34d399' : '#f87171';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      d.closes.forEach((v, i) => {
+        const x = (i / (d.closes.length - 1)) * w;
+        const y = h - ((v - min) / range) * h;
+        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+    } catch (e) {}
+  }
+
+  // ===== SIDEBAR ACTIVITY =====
+  function updateSidebarActivity() {
+    const el = document.getElementById('sidebarActivity');
+    if (!el) return;
+    el.innerHTML = notifications.slice(0, 30).map(n =>
+      `<div style="padding:8px; border-bottom:1px solid var(--line); font-size:12px;">
+        <div style="color:var(--muted); font-size:10px; font-family:'JetBrains Mono',monospace;">${n.time}</div>
+        <div>${n.msg}</div>
+      </div>`
+    ).join('') || '<div style="text-align:center; color:var(--muted); padding:20px; font-size:12px;">No activity</div>';
+  }
+
   // ===== P&L DISTRIBUTION =====
   async function fetchPnLDistribution() {
     try {
@@ -3229,6 +3380,7 @@
     fetchAuditLog();
     updateDayProgress();
     updateNotifBadge();
+    fetchMarketStatus();
     checkTimeAlerts();
     applyAutoTheme();
   }
@@ -3278,6 +3430,11 @@
   fetchHealth();
   loadStrategyParamForm();
   document.getElementById('spStrat')?.addEventListener('change', loadStrategyParamForm);
+  fetchMarketStatus();
+  if (_voiceEnabled) {
+    document.getElementById('voiceBtn').textContent = '🔇 Disable';
+    document.getElementById('voiceBtn').style.background = 'var(--accent)';
+  }
   setConnectionStatus(navigator.onLine);
   window.addEventListener('online', () => setConnectionStatus(true));
   window.addEventListener('offline', () => setConnectionStatus(false));
