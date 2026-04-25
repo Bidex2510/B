@@ -970,3 +970,119 @@ async def health(request: Request):
         "scan_count": getattr(bot, "_scan_count", 0),
         "last_scan_iso": getattr(bot, "_last_scan_iso", ""),
     }
+
+
+# ── P&L Distribution (Histogram) ─────────────────────────────────────────────
+
+@router.get("/pnl-distribution")
+async def pnl_distribution(request: Request):
+    trades = _bot(request)._trade_log.recent_trades(500)
+    if not trades:
+        return {"buckets": [], "counts": []}
+    pnls = [t.get("pnl_pct", 0) for t in trades]
+    edges = [-5, -3, -2, -1, -0.5, 0, 0.5, 1, 2, 3, 5]
+    counts = [0] * (len(edges) - 1)
+    for p in pnls:
+        for i in range(len(edges) - 1):
+            if edges[i] <= p < edges[i+1]:
+                counts[i] += 1
+                break
+        else:
+            if p >= edges[-1]:
+                counts[-1] += 1
+            else:
+                counts[0] += 1
+    labels = [f"{edges[i]:+g}% to {edges[i+1]:+g}%" for i in range(len(edges) - 1)]
+    return {"buckets": labels, "counts": counts}
+
+
+# ── Tax Report (long/short term split) ───────────────────────────────────────
+
+@router.get("/tax-report")
+async def tax_report(request: Request):
+    trades = _bot(request)._trade_log.recent_trades(500)
+    short_term = []
+    long_term = []
+    for t in trades:
+        try:
+            entry = datetime.fromisoformat(t.get("entry_date", ""))
+            exit_ = datetime.fromisoformat(t.get("exit_date", ""))
+            days_held = (exit_ - entry).days
+            row = {
+                "symbol": t.get("symbol"),
+                "entry": entry.date().isoformat(),
+                "exit": exit_.date().isoformat(),
+                "days_held": days_held,
+                "pnl": t.get("pnl", 0),
+            }
+            if days_held >= 365:
+                long_term.append(row)
+            else:
+                short_term.append(row)
+        except Exception:
+            pass
+    return {
+        "short_term": short_term,
+        "long_term": long_term,
+        "short_term_total": round(sum(r["pnl"] for r in short_term), 2),
+        "long_term_total": round(sum(r["pnl"] for r in long_term), 2),
+    }
+
+
+# ── Bulk Watchlist Import ────────────────────────────────────────────────────
+
+class BulkWatchlistRequest(BaseModel):
+    symbols: list[str]
+
+
+@router.post("/watchlist/import")
+async def watchlist_import(req: BulkWatchlistRequest):
+    from jarvis.plugins.trading import scanner
+    cur = set(scanner.get_watchlist())
+    added = []
+    for s in req.symbols:
+        sym = s.upper().strip()
+        if sym and sym not in cur:
+            cur.add(sym)
+            added.append(sym)
+    os.environ["TRADING_WATCHLIST"] = ",".join(sorted(cur))
+    return {"message": f"Added {len(added)} symbols", "added": added}
+
+
+# ── Audit Log ────────────────────────────────────────────────────────────────
+
+_audit_log: list[dict] = []
+
+
+def _log_audit(action: str, detail: str = ""):
+    _audit_log.append({"ts": datetime.now().isoformat(timespec="seconds"),
+                        "action": action, "detail": detail})
+    if len(_audit_log) > 200:
+        _audit_log.pop(0)
+
+
+@router.get("/audit-log")
+async def audit_log():
+    return {"log": list(reversed(_audit_log))}
+
+
+# ── Position Freeze (block bot from closing specific symbol) ─────────────────
+
+_frozen_positions: set[str] = set()
+
+
+@router.post("/position/freeze/{symbol}")
+async def freeze_position(symbol: str):
+    sym = symbol.upper()
+    if sym in _frozen_positions:
+        _frozen_positions.discard(sym)
+        _log_audit("position_unfreeze", sym)
+        return {"message": f"{sym} unfrozen", "frozen": False}
+    _frozen_positions.add(sym)
+    _log_audit("position_freeze", sym)
+    return {"message": f"{sym} frozen (bot won't auto-close)", "frozen": True}
+
+
+@router.get("/position/frozen-list")
+async def frozen_positions():
+    return {"frozen": list(_frozen_positions)}

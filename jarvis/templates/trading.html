@@ -8,6 +8,7 @@
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.0/dist/jspdf.plugin.autotable.min.js"></script>
   <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.2/dist/confetti.browser.min.js"></script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
 
@@ -596,6 +597,32 @@
     .ro-off { background: rgba(248,113,113,0.2); color: var(--red); }
     .ro-neutral { background: rgba(251,191,36,0.2); color: var(--yellow); }
 
+    /* Color blind mode (orange/blue instead of red/green) */
+    body.color-blind { --green: #2563eb; --red: #f97316; }
+
+    /* High contrast */
+    body.high-contrast { --bg: #000; --panel: #111; --panel2: #222; --line: #555; --text: #fff; --muted: #ccc; }
+    body.high-contrast .stat, body.high-contrast .chart-panel { border-width: 2px; }
+
+    /* Daily progress bar in top bar */
+    .top-progress { width: 100%; height: 3px; background: var(--line); position: relative; overflow: hidden; }
+    .top-progress-fill { height: 100%; transition: width 0.5s; }
+    .top-progress-fill.green { background: linear-gradient(90deg, var(--green), var(--accent)); }
+    .top-progress-fill.red { background: var(--red); }
+
+    /* Quick search */
+    #quickSearchModal .modal-content { max-width: 400px; padding: 14px; }
+    #quickSearchInput { width: 100%; background: var(--panel2); color: var(--text); border: 1px solid var(--line); padding: 12px; border-radius: 6px; font-size: 16px; font-family: 'JetBrains Mono', monospace; }
+    .qs-result { padding: 10px; cursor: pointer; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 13px; }
+    .qs-result:hover, .qs-result.active { background: var(--accent); color: var(--bg); }
+
+    /* Notification badge */
+    .notif-badge { position: absolute; top: -4px; right: -4px; background: var(--red); color: white; font-size: 9px; padding: 2px 5px; border-radius: 8px; font-weight: 700; }
+
+    /* Pinned star */
+    .pin-star { cursor: pointer; color: var(--muted); margin-right: 4px; }
+    .pin-star.pinned { color: var(--yellow); }
+
     /* Mobile Responsive */
     @media (max-width: 768px) {
       .top-bar {
@@ -701,6 +728,9 @@
 
 <div class="paper-watermark" id="watermark"></div>
 
+<!-- Daily P&L Progress Bar -->
+<div class="top-progress"><div class="top-progress-fill green" id="dayProgressFill" style="width: 0%;"></div></div>
+
 <!-- Live Ticker Tape -->
 <div class="ticker-tape" id="tickerTape">
   <div class="ticker-track" id="tickerTrack"><span class="ticker-item">Loading market data...</span></div>
@@ -729,13 +759,16 @@
 
   <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
     <div class="time-display" id="timeDisplay"></div>
+    <button class="btn" onclick="showModal('quickSearch'); setTimeout(()=>document.getElementById('quickSearchInput').focus(),100)" title="Quick search (Ctrl+K)">🔍</button>
     <button class="btn" onclick="toggleFocusMode()" title="Focus Mode">🎯</button>
     <button class="btn" onclick="toggleNeutral()" title="Neutral colors" id="neutralBtn">⚖️</button>
+    <button class="btn" onclick="toggleColorBlind()" title="Color-blind mode" id="cbBtn">👁</button>
+    <button class="btn" onclick="toggleHighContrast()" title="High contrast" id="hcBtn">◐</button>
     <button class="btn" onclick="toggleCompact()" title="Compact density" id="compactBtn">⊟</button>
     <button class="btn" onclick="changeFontSize(1)" title="Bigger text">A+</button>
     <button class="btn" onclick="changeFontSize(-1)" title="Smaller text">A-</button>
     <button class="btn" onclick="toggleAutoTheme()" title="Auto theme" id="autoThemeBtn">🌗</button>
-    <button class="btn" onclick="enablePushNotifs()" title="Browser notifications" id="pushBtn">🔔</button>
+    <button class="btn" onclick="enablePushNotifs()" title="Browser notifications" id="pushBtn" style="position:relative;">🔔<span class="notif-badge" id="notifBadge" style="display:none;">0</span></button>
     <button class="btn" onclick="showModal('shortcuts')" id="helpBtn">?</button>
     <button class="btn" onclick="cycleTheme()" title="Cycle theme">🎨</button>
     <button class="btn" id="mobileToggleBtn" onclick="toggleMobileMode()" style="display: none;">📱</button>
@@ -914,6 +947,7 @@
       <button class="btn" onclick="exportCSV()">📥 Export CSV</button>
       <button class="btn" onclick="exportPDF()">📄 Export PDF Report</button>
       <button class="btn" onclick="exportJSON()">📥 Export JSON</button>
+      <button class="btn" onclick="exportTaxReport()">🧾 Tax Report</button>
       <button class="btn" onclick="showSessionSummary()">📊 Session Summary</button>
     </div>
 
@@ -1139,6 +1173,16 @@
     </div>
 
     <div class="chart-panel" style="margin-bottom: 15px;">
+      <div class="chart-title">P&L Distribution</div>
+      <canvas id="pnlDistChart"></canvas>
+    </div>
+
+    <div class="chart-panel" style="margin-bottom: 15px;">
+      <div class="chart-title">Audit Log (last 50 actions)</div>
+      <div id="auditLog" style="max-height: 300px; overflow-y: auto; font-family: 'JetBrains Mono', monospace; font-size: 11px; margin-top: 8px;"></div>
+    </div>
+
+    <div class="chart-panel" style="margin-bottom: 15px;">
       <div class="chart-title">Hold Time Stats</div>
       <div class="stats-grid" style="margin-top: 10px;">
         <div class="stat">
@@ -1258,6 +1302,8 @@
         <input type="text" id="wlInput" class="goal-input" placeholder="Add symbol (e.g. NVDA)" style="flex: 1; padding: 8px; text-transform: uppercase;">
         <button class="btn btn-start" onclick="watchlistAdd()">Add</button>
       </div>
+      <textarea id="wlBulk" class="goal-input" placeholder="Bulk import: NVDA, TSLA, AAPL, GOOG (comma or newline separated)" style="width:100%; padding: 8px; min-height: 60px; margin-top: 8px; font-family: 'JetBrains Mono', monospace; font-size: 12px;"></textarea>
+      <button class="btn" onclick="watchlistBulk()" style="width: 100%; margin-top: 6px;">📥 Bulk Import</button>
       <div id="watchlistDisplay" style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px;"></div>
     </div>
 
@@ -1412,6 +1458,15 @@
 </div>
 
 <!-- Modals -->
+<div id="quickSearchModal" class="modal">
+  <div class="modal-content" style="position: relative;">
+    <button class="modal-close" onclick="closeModal('quickSearch')">×</button>
+    <div class="modal-title">🔍 Quick Search</div>
+    <input id="quickSearchInput" placeholder="Type a symbol (AAPL)... or command (start, stop, freeze)" oninput="quickSearchUpdate()" onkeydown="quickSearchKey(event)">
+    <div id="quickSearchResults" style="margin-top: 10px;"></div>
+  </div>
+</div>
+
 <div id="chartModal" class="modal">
   <div class="modal-content" style="position: relative;">
     <button class="modal-close" onclick="closeModal('chart')">×</button>
@@ -1456,6 +1511,14 @@
       <div class="shortcut-row">
         <span class="shortcut-key">Ctrl+X</span>
         <span>Close All Positions</span>
+      </div>
+      <div class="shortcut-row">
+        <span class="shortcut-key">Ctrl+K</span>
+        <span>Quick Search / Command Palette</span>
+      </div>
+      <div class="shortcut-row">
+        <span class="shortcut-key">Ctrl+F</span>
+        <span>Toggle Focus Mode</span>
       </div>
       <div class="shortcut-row">
         <span class="shortcut-key">Ctrl+?</span>
@@ -1992,6 +2055,15 @@
       if (e.key === '?') {
         e.preventDefault();
         showModal('shortcuts');
+      }
+      if (e.key === 'k') {
+        e.preventDefault();
+        showModal('quickSearch');
+        setTimeout(() => document.getElementById('quickSearchInput').focus(), 50);
+      }
+      if (e.key === 'f') {
+        e.preventDefault();
+        toggleFocusMode();
       }
     }
   });
@@ -2820,7 +2892,7 @@
     }
 
     // Reset daily flags after midnight
-    if (h === 0 && m === 0) { _powerHourAlerted = false; _lunchAlerted = false; }
+    if (h === 0 && m === 0) { _powerHourAlerted = false; _lunchAlerted = false; window._goalCelebrated = false; }
   }
 
   // ===== JSON EXPORT =====
@@ -2840,6 +2912,174 @@
     a.download = 'trading-data-' + new Date().toISOString().slice(0,10) + '.json';
     a.click();
     addNotification('JSON exported');
+  }
+
+  // ===== P&L DISTRIBUTION =====
+  async function fetchPnLDistribution() {
+    try {
+      const res = await fetch('/api/trading/pnl-distribution');
+      const d = await res.json();
+      const ctx = document.getElementById('pnlDistChart');
+      if (!ctx || !d.counts.length) return;
+      if (window.pnlDistInst) window.pnlDistInst.destroy();
+      window.pnlDistInst = new Chart(ctx, {
+        type: 'bar',
+        data: {labels: d.buckets, datasets:[{
+          data: d.counts,
+          backgroundColor: d.buckets.map(b => b.startsWith('-') || b.startsWith('-0') ? 'rgba(248,113,113,0.7)' : 'rgba(52,211,153,0.7)')
+        }]},
+        options:{responsive:true, plugins:{legend:{display:false}},
+          scales:{y:{ticks:{color:'#8892a6'}, grid:{color:'rgba(255,255,255,0.05)'}},
+                  x:{ticks:{color:'#8892a6', font:{size:9}}}}}
+      });
+    } catch (e) {}
+  }
+
+  // ===== TAX REPORT =====
+  async function exportTaxReport() {
+    const res = await fetch('/api/trading/tax-report');
+    const d = await res.json();
+    if (!window.jspdf) { addNotification('PDF lib missing', 'error'); return; }
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+    doc.setFontSize(18); doc.text('Tax Report', 14, 20);
+    doc.setFontSize(10); doc.text('Generated: ' + new Date().toLocaleString(), 14, 28);
+    doc.setFontSize(12);
+    doc.text(`Short-term gains: $${d.short_term_total.toFixed(2)}`, 14, 40);
+    doc.text(`Long-term gains: $${d.long_term_total.toFixed(2)}`, 14, 48);
+
+    if (d.short_term.length && doc.autoTable) {
+      doc.text('Short-term Trades (held < 365 days)', 14, 60);
+      doc.autoTable({
+        startY: 64,
+        head: [['Symbol', 'Entry', 'Exit', 'Days', 'P&L']],
+        body: d.short_term.map(r => [r.symbol, r.entry, r.exit, r.days_held, '$' + r.pnl.toFixed(2)]),
+        styles: {fontSize: 8},
+      });
+    }
+    if (d.long_term.length && doc.autoTable) {
+      doc.addPage();
+      doc.text('Long-term Trades (held >= 365 days)', 14, 20);
+      doc.autoTable({
+        startY: 24,
+        head: [['Symbol', 'Entry', 'Exit', 'Days', 'P&L']],
+        body: d.long_term.map(r => [r.symbol, r.entry, r.exit, r.days_held, '$' + r.pnl.toFixed(2)]),
+        styles: {fontSize: 8},
+      });
+    }
+    doc.save('tax-report-' + new Date().getFullYear() + '.pdf');
+    addNotification('Tax report downloaded');
+  }
+
+  // ===== AUDIT LOG =====
+  async function fetchAuditLog() {
+    try {
+      const res = await fetch('/api/trading/audit-log');
+      const d = await res.json();
+      const el = document.getElementById('auditLog');
+      if (!el) return;
+      el.innerHTML = d.log.length ? d.log.map(e =>
+        `<div style="padding:4px 6px; border-bottom:1px solid var(--line);">
+          <span style="color:var(--muted);">${e.ts.replace('T',' ')}</span>
+          <span style="color:var(--accent); margin-left:8px;">${e.action}</span>
+          <span style="color:var(--text); margin-left:8px;">${e.detail}</span>
+        </div>`
+      ).join('') : '<div style="text-align:center; padding:20px; color:var(--muted);">No actions logged</div>';
+    } catch (e) {}
+  }
+
+  // ===== BULK WATCHLIST IMPORT =====
+  async function watchlistBulk() {
+    const raw = document.getElementById('wlBulk').value;
+    const symbols = raw.split(/[,\n\s]+/).map(s => s.trim().toUpperCase()).filter(s => s.length > 0);
+    if (!symbols.length) { addNotification('Enter at least one symbol', 'error'); return; }
+    const res = await fetch('/api/trading/watchlist/import', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({symbols})});
+    const d = await res.json();
+    addNotification(d.message);
+    document.getElementById('wlBulk').value = '';
+    loadWatchlist();
+  }
+
+  // ===== QUICK SEARCH =====
+  let _qsActive = -1;
+  function quickSearchUpdate() {
+    const q = document.getElementById('quickSearchInput').value.toUpperCase();
+    const commands = [
+      {label: '▶ Start Bot', cmd: () => sendCmd('/api/trading/start')},
+      {label: '⏹ Stop Bot', cmd: () => sendCmd('/api/trading/stop')},
+      {label: '❄ Freeze', cmd: () => sendCmd('/api/trading/freeze')},
+      {label: '☀ Unfreeze', cmd: () => sendCmd('/api/trading/unfreeze')},
+      {label: '⚠ Close All', cmd: () => { if (confirm('Close ALL?')) sendCmd('/api/trading/close-all'); }},
+      {label: '🎯 Focus Mode', cmd: toggleFocusMode},
+      {label: '🎨 Theme', cmd: cycleTheme},
+      {label: '📊 Session Summary', cmd: showSessionSummary},
+    ];
+    const filtered = q ? commands.filter(c => c.label.toUpperCase().includes(q)) : commands;
+    const symbols = (botStatus.positions || []).map(p => p.symbol).filter(s => !q || s.includes(q));
+    let html = symbols.map(s => `<div class="qs-result" onclick="closeModal('quickSearch'); openChart('${s}')">📈 ${s} (chart)</div>`).join('');
+    html += filtered.map(c => `<div class="qs-result" onclick="closeModal('quickSearch'); (${c.cmd.toString()})()">${c.label}</div>`).join('');
+    if (q && q.length >= 1 && q.length <= 5) {
+      html = `<div class="qs-result" onclick="closeModal('quickSearch'); openChart('${q}')">📈 Open chart for ${q}</div>` + html;
+    }
+    document.getElementById('quickSearchResults').innerHTML = html;
+  }
+
+  function quickSearchKey(e) {
+    if (e.key === 'Enter') {
+      const first = document.querySelector('#quickSearchResults .qs-result');
+      if (first) first.click();
+    }
+    if (e.key === 'Escape') closeModal('quickSearch');
+  }
+
+  // ===== TOGGLES =====
+  function toggleColorBlind() {
+    document.body.classList.toggle('color-blind');
+    localStorage.setItem('colorBlind', document.body.classList.contains('color-blind'));
+    document.getElementById('cbBtn').style.background = document.body.classList.contains('color-blind') ? 'var(--accent)' : '';
+  }
+
+  function toggleHighContrast() {
+    document.body.classList.toggle('high-contrast');
+    localStorage.setItem('highContrast', document.body.classList.contains('high-contrast'));
+    document.getElementById('hcBtn').style.background = document.body.classList.contains('high-contrast') ? 'var(--accent)' : '';
+  }
+
+  // ===== DAILY P&L PROGRESS BAR =====
+  function updateDayProgress() {
+    const stats = botStatus.trade_stats || {};
+    const goal = botStatus.goal || 100;
+    const progress = (stats.total_pnl || 0) / goal * 100;
+    const fill = document.getElementById('dayProgressFill');
+    if (!fill) return;
+    fill.className = 'top-progress-fill ' + ((stats.total_pnl || 0) >= 0 ? 'green' : 'red');
+    fill.style.width = Math.max(0, Math.min(100, Math.abs(progress))) + '%';
+
+    // Goal hit celebration
+    if (stats.total_pnl >= goal && goal > 0 && !window._goalCelebrated) {
+      window._goalCelebrated = true;
+      if (window.confetti) {
+        confetti({particleCount: 100, spread: 70, origin: {y: 0.3}});
+        setTimeout(() => confetti({particleCount: 50, spread: 60, origin: {x: 0.2, y: 0.3}}), 200);
+        setTimeout(() => confetti({particleCount: 50, spread: 60, origin: {x: 0.8, y: 0.3}}), 400);
+      }
+      addNotification('🎉 DAILY GOAL HIT! $' + goal.toFixed(2));
+      pushNotify('🎉 Goal Hit!', 'You hit your $' + goal.toFixed(2) + ' daily goal');
+      playSound('buy');
+    }
+  }
+
+  // ===== NOTIF BADGE =====
+  function updateNotifBadge() {
+    const unread = notifications.filter(n => !n.seen).length;
+    const badge = document.getElementById('notifBadge');
+    if (!badge) return;
+    if (unread > 0) {
+      badge.style.display = 'block';
+      badge.textContent = Math.min(unread, 99);
+    } else {
+      badge.style.display = 'none';
+    }
   }
 
   // ===== ROLLING WIN RATE =====
@@ -2985,6 +3225,10 @@
     fetchHoldTime();
     fetchBenchmark();
     fetchHealth();
+    fetchPnLDistribution();
+    fetchAuditLog();
+    updateDayProgress();
+    updateNotifBadge();
     checkTimeAlerts();
     applyAutoTheme();
   }
@@ -2995,6 +3239,8 @@
   if (localStorage.getItem('focusMode') === 'true') document.body.classList.add('focus-mode');
   if (localStorage.getItem('neutral') === 'true') document.body.classList.add('neutral');
   if (localStorage.getItem('compact') === 'true') document.body.classList.add('compact');
+  if (localStorage.getItem('colorBlind') === 'true') document.body.classList.add('color-blind');
+  if (localStorage.getItem('highContrast') === 'true') document.body.classList.add('high-contrast');
   document.body.style.fontSize = _fontSize + 'px';
   if (autoThemeEnabled) {
     document.getElementById('autoThemeBtn').style.background = 'var(--accent)';
