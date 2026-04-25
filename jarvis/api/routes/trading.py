@@ -1190,3 +1190,149 @@ async def toggle_pin(symbol: str):
         return {"pinned": False}
     _pinned.add(sym)
     return {"pinned": True}
+
+
+# ── Market Breadth (rough via major ETFs) ────────────────────────────────────
+
+@router.get("/breadth")
+async def market_breadth():
+    sectors = ["XLK", "XLF", "XLE", "XLV", "XLY", "XLP", "XLI", "XLB", "XLU", "XLRE", "XLC"]
+    advancing = 0
+    declining = 0
+    for s in sectors:
+        try:
+            df = yf.Ticker(s).history(period="2d")
+            if len(df) >= 2:
+                chg = df["Close"].iloc[-1] - df["Close"].iloc[-2]
+                if chg > 0:
+                    advancing += 1
+                elif chg < 0:
+                    declining += 1
+        except Exception:
+            pass
+    total = advancing + declining
+    breadth_pct = round(advancing / total * 100, 1) if total else 50
+    if breadth_pct >= 70:
+        signal = "STRONG"
+    elif breadth_pct >= 55:
+        signal = "BULLISH"
+    elif breadth_pct >= 45:
+        signal = "MIXED"
+    elif breadth_pct >= 30:
+        signal = "BEARISH"
+    else:
+        signal = "WEAK"
+    return {"advancing": advancing, "declining": declining,
+            "breadth_pct": breadth_pct, "signal": signal}
+
+
+# ── Strategy Presets ─────────────────────────────────────────────────────────
+
+class PresetRequest(BaseModel):
+    preset: str  # "conservative" / "balanced" / "aggressive"
+
+
+@router.post("/preset")
+async def apply_preset(req: PresetRequest, request: Request):
+    bot = _bot(request)
+    r = bot._risk
+    if req.preset == "conservative":
+        r.MAX_POSITION_PCT = 0.05
+        r.STOP_LOSS_PCT = -0.015
+        r.TRAILING_STOP_PCT = -0.02
+        r.DAILY_MAX_LOSS_PCT = -0.03
+        for s in bot.strategy_manager.strategies.values():
+            s.min_score_to_buy = max(0.7, s.min_score_to_buy + 0.05)
+        msg = "Applied CONSERVATIVE preset"
+    elif req.preset == "balanced":
+        r.MAX_POSITION_PCT = 0.10
+        r.STOP_LOSS_PCT = -0.02
+        r.TRAILING_STOP_PCT = -0.03
+        r.DAILY_MAX_LOSS_PCT = -0.05
+        for s in bot.strategy_manager.strategies.values():
+            s.min_score_to_buy = 0.62
+        msg = "Applied BALANCED preset"
+    elif req.preset == "aggressive":
+        r.MAX_POSITION_PCT = 0.15
+        r.STOP_LOSS_PCT = -0.03
+        r.TRAILING_STOP_PCT = -0.04
+        r.DAILY_MAX_LOSS_PCT = -0.08
+        for s in bot.strategy_manager.strategies.values():
+            s.min_score_to_buy = 0.55
+        msg = "Applied AGGRESSIVE preset"
+    else:
+        return {"message": "Unknown preset"}
+    _log_audit("preset_applied", req.preset)
+    return {"message": msg}
+
+
+# ── Earnings Warning for Held Positions ──────────────────────────────────────
+
+@router.get("/earnings-warning")
+async def earnings_warning(request: Request):
+    bot = _bot(request)
+    if not bot.is_running:
+        return {"warnings": []}
+    raw = bot._client.get_positions()
+    warnings = []
+    today = datetime.now().date()
+    for sym in raw.keys():
+        try:
+            t = yf.Ticker(sym)
+            cal = t.calendar
+            if cal is not None and not cal.empty and hasattr(cal, "columns"):
+                date_val = cal.columns[0]
+                ed = datetime.strptime(str(date_val)[:10], "%Y-%m-%d").date()
+                days_until = (ed - today).days
+                if 0 <= days_until <= 3:
+                    warnings.append({"symbol": sym, "earnings_date": ed.isoformat(),
+                                       "days_until": days_until})
+        except Exception:
+            pass
+    return {"warnings": warnings}
+
+
+# ── Daily Streak (consecutive winning days) ──────────────────────────────────
+
+@router.get("/daily-streak")
+async def daily_streak(request: Request):
+    trades = _bot(request)._trade_log.recent_trades(500)
+    by_day: dict = {}
+    for t in trades:
+        try:
+            d = t.get("exit_date", "")[:10]
+            by_day[d] = by_day.get(d, 0) + t.get("pnl", 0)
+        except Exception:
+            pass
+    days = sorted(by_day.keys())
+    current_streak = 0
+    for d in reversed(days):
+        if by_day[d] > 0:
+            current_streak += 1
+        else:
+            break
+    max_streak = 0
+    s = 0
+    for d in days:
+        if by_day[d] > 0:
+            s += 1
+            max_streak = max(max_streak, s)
+        else:
+            s = 0
+    return {"current_streak": current_streak, "max_streak": max_streak,
+            "winning_days": sum(1 for v in by_day.values() if v > 0),
+            "losing_days": sum(1 for v in by_day.values() if v < 0)}
+
+
+# ── Scanner Stats ────────────────────────────────────────────────────────────
+
+@router.get("/scanner-stats")
+async def scanner_stats(request: Request):
+    bot = _bot(request)
+    return {
+        "watchlist_size": len(getattr(bot, "_last_scan_symbols", [])),
+        "scan_count": getattr(bot, "_scan_count", 0),
+        "candidates_found": getattr(bot, "_last_candidates", 0),
+        "signals_generated": getattr(bot, "_last_signals", 0),
+        "last_scan": getattr(bot, "_last_scan_iso", ""),
+    }

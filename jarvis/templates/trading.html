@@ -903,7 +903,10 @@
       <span style="font-size: 12px; color: var(--muted); text-transform: uppercase;">Market Regime:</span>
       <span class="ro-badge ro-neutral" id="riskBadge">—</span>
       <span style="font-size: 11px; color: var(--muted);">SPY 10d: <span id="spyChg">—</span> · TLT 10d: <span id="tltChg">—</span></span>
+      <span style="font-size: 11px; color: var(--muted);">Breadth: <span id="breadthVal" data-tip="Sectors advancing vs declining today">—</span></span>
     </div>
+
+    <div id="earningsWarningBox" style="display: none; background: rgba(251,191,36,0.15); border: 1px solid var(--yellow); padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; font-size: 13px; color: var(--yellow);"></div>
 
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px;">
       <div class="stat">
@@ -1078,6 +1081,50 @@
         <thead><tr><th>Strategy</th><th>Trades</th><th>Win %</th><th>Avg P&L</th><th>Total P&L</th></tr></thead>
         <tbody id="stratPerfBody"></tbody>
       </table>
+    </div>
+
+    <div class="chart-panel" style="margin-bottom: 15px;">
+      <div class="chart-title">Daily Win Streak</div>
+      <div class="stats-grid" style="margin-top: 10px;">
+        <div class="stat">
+          <div class="stat-label">Current Streak</div>
+          <div class="stat-value green" id="dsCurrent">0 days</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Best Streak</div>
+          <div class="stat-value green" id="dsMax">0 days</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Winning Days</div>
+          <div class="stat-value" id="dsWin">0</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Losing Days</div>
+          <div class="stat-value" id="dsLoss">0</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="chart-panel" style="margin-bottom: 15px;">
+      <div class="chart-title">Scanner Stats</div>
+      <div class="stats-grid" style="margin-top: 10px;">
+        <div class="stat">
+          <div class="stat-label">Watchlist</div>
+          <div class="stat-value" id="scWatchlist">0</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Total Scans</div>
+          <div class="stat-value" id="scScans">0</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Candidates</div>
+          <div class="stat-value" id="scCands">0</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Signals</div>
+          <div class="stat-value" id="scSignals">0</div>
+        </div>
+      </div>
     </div>
 
     <div class="chart-panel" style="margin-bottom: 15px;">
@@ -1294,6 +1341,21 @@
 
   <!-- ===== SETTINGS TAB ===== -->
   <div id="settings" class="tab-content">
+
+    <div class="chart-panel" style="margin-bottom: 15px;">
+      <div class="chart-title">Strategy Presets</div>
+      <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 10px;">
+        <button class="btn" onclick="if(confirm('Apply CONSERVATIVE preset?')) applyPreset('conservative')" style="background: rgba(96,165,250,0.15); color: var(--blue); border-color: var(--blue); padding: 14px;">
+          🛡 Conservative<br><span style="font-size:10px; opacity:0.7;">Smaller, fewer trades</span>
+        </button>
+        <button class="btn" onclick="if(confirm('Apply BALANCED preset?')) applyPreset('balanced')" style="background: rgba(52,211,153,0.15); color: var(--green); border-color: var(--green); padding: 14px;">
+          ⚖ Balanced<br><span style="font-size:10px; opacity:0.7;">Default settings</span>
+        </button>
+        <button class="btn" onclick="if(confirm('Apply AGGRESSIVE preset?')) applyPreset('aggressive')" style="background: rgba(248,113,113,0.15); color: var(--red); border-color: var(--red); padding: 14px;">
+          🔥 Aggressive<br><span style="font-size:10px; opacity:0.7;">More trades, bigger size</span>
+        </button>
+      </div>
+    </div>
 
     <div class="chart-panel" style="margin-bottom: 15px;">
       <div class="chart-title">Strategy Toggles & Parameters</div>
@@ -2992,6 +3054,69 @@
     addNotification('JSON exported');
   }
 
+  // ===== STRATEGY PRESETS =====
+  async function applyPreset(preset) {
+    const res = await fetch('/api/trading/preset', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({preset})});
+    const d = await res.json();
+    addNotification(d.message);
+    loadStrategyToggles();
+    loadRiskSettings();
+  }
+
+  // ===== MARKET BREADTH =====
+  async function fetchBreadth() {
+    try {
+      const res = await fetch('/api/trading/breadth');
+      const d = await res.json();
+      const el = document.getElementById('breadthVal');
+      if (!el) return;
+      el.textContent = `${d.advancing}↑/${d.declining}↓ (${d.signal})`;
+      el.style.color = d.signal === 'STRONG' || d.signal === 'BULLISH' ? 'var(--green)' :
+                        d.signal === 'WEAK' || d.signal === 'BEARISH' ? 'var(--red)' : 'var(--yellow)';
+    } catch (e) {}
+  }
+
+  // ===== EARNINGS WARNING =====
+  async function fetchEarningsWarning() {
+    try {
+      const res = await fetch('/api/trading/earnings-warning');
+      const d = await res.json();
+      const box = document.getElementById('earningsWarningBox');
+      if (!box) return;
+      if (!d.warnings.length) { box.style.display = 'none'; return; }
+      box.style.display = 'block';
+      box.innerHTML = '⚠️ Earnings approaching: ' + d.warnings.map(w =>
+        `<b>${w.symbol}</b> in ${w.days_until} day${w.days_until !== 1 ? 's' : ''}`
+      ).join(', ') + ' — consider closing before announcement.';
+    } catch (e) {}
+  }
+
+  // ===== DAILY STREAK =====
+  async function fetchDailyStreak() {
+    try {
+      const res = await fetch('/api/trading/daily-streak');
+      const d = await res.json();
+      const el = id => document.getElementById(id);
+      if (el('dsCurrent')) el('dsCurrent').textContent = d.current_streak + ' day' + (d.current_streak !== 1 ? 's' : '');
+      if (el('dsMax')) el('dsMax').textContent = d.max_streak + ' day' + (d.max_streak !== 1 ? 's' : '');
+      if (el('dsWin')) el('dsWin').textContent = d.winning_days;
+      if (el('dsLoss')) el('dsLoss').textContent = d.losing_days;
+    } catch (e) {}
+  }
+
+  // ===== SCANNER STATS =====
+  async function fetchScannerStats() {
+    try {
+      const res = await fetch('/api/trading/scanner-stats');
+      const d = await res.json();
+      const el = id => document.getElementById(id);
+      if (el('scWatchlist')) el('scWatchlist').textContent = d.watchlist_size;
+      if (el('scScans')) el('scScans').textContent = d.scan_count;
+      if (el('scCands')) el('scCands').textContent = d.candidates_found;
+      if (el('scSignals')) el('scSignals').textContent = d.signals_generated;
+    } catch (e) {}
+  }
+
   // ===== MARKET STATUS BANNER =====
   async function fetchMarketStatus() {
     try {
@@ -3381,6 +3506,10 @@
     updateDayProgress();
     updateNotifBadge();
     fetchMarketStatus();
+    fetchBreadth();
+    fetchEarningsWarning();
+    fetchDailyStreak();
+    fetchScannerStats();
     checkTimeAlerts();
     applyAutoTheme();
   }
