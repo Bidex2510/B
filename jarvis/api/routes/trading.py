@@ -666,3 +666,186 @@ async def earnings(request: Request):
             pass
     upcoming.sort(key=lambda x: x["date"])
     return {"earnings": upcoming[:20]}
+
+
+# ── Candlestick Price History ─────────────────────────────────────────────────
+
+@router.get("/price-history/{symbol}")
+async def price_history(symbol: str, period: str = "5d", interval: str = "5m"):
+    try:
+        df = yf.Ticker(symbol).history(period=period, interval=interval)
+        if df.empty:
+            return {"error": "No data"}
+        bars = []
+        for ts, row in df.iterrows():
+            bars.append({
+                "time": int(ts.timestamp()),
+                "open": round(float(row["Open"]), 2),
+                "high": round(float(row["High"]), 2),
+                "low": round(float(row["Low"]), 2),
+                "close": round(float(row["Close"]), 2),
+                "volume": int(row["Volume"]),
+            })
+        return {"symbol": symbol, "bars": bars}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+# ── Sector Rotation ──────────────────────────────────────────────────────────
+
+@router.get("/sector-rotation")
+async def sector_rotation():
+    sectors = {
+        "XLK": "Technology", "XLF": "Financials", "XLE": "Energy",
+        "XLV": "Healthcare", "XLY": "Cons Discretionary", "XLP": "Cons Staples",
+        "XLI": "Industrials", "XLB": "Materials", "XLU": "Utilities",
+        "XLRE": "Real Estate", "XLC": "Communication",
+    }
+    results = []
+    for sym, label in sectors.items():
+        try:
+            df = yf.Ticker(sym).history(period="5d")
+            if len(df) >= 2:
+                prev = float(df["Close"].iloc[0])
+                curr = float(df["Close"].iloc[-1])
+                chg = (curr - prev) / prev * 100
+                results.append({"symbol": sym, "name": label, "change_5d": round(chg, 2)})
+        except Exception:
+            pass
+    results.sort(key=lambda x: x["change_5d"], reverse=True)
+    return {"sectors": results}
+
+
+# ── Risk On / Off Indicator ──────────────────────────────────────────────────
+
+@router.get("/risk-on-off")
+async def risk_on_off():
+    """Compare SPY (risk-on) vs TLT (risk-off / bonds) momentum."""
+    try:
+        spy = yf.Ticker("SPY").history(period="10d")
+        tlt = yf.Ticker("TLT").history(period="10d")
+        if len(spy) < 2 or len(tlt) < 2:
+            return {"signal": "UNKNOWN"}
+        spy_chg = (spy["Close"].iloc[-1] - spy["Close"].iloc[0]) / spy["Close"].iloc[0] * 100
+        tlt_chg = (tlt["Close"].iloc[-1] - tlt["Close"].iloc[0]) / tlt["Close"].iloc[0] * 100
+        if spy_chg > tlt_chg + 1:
+            signal = "RISK ON"
+        elif tlt_chg > spy_chg + 1:
+            signal = "RISK OFF"
+        else:
+            signal = "NEUTRAL"
+        return {"signal": signal, "spy_10d": round(float(spy_chg), 2),
+                "tlt_10d": round(float(tlt_chg), 2)}
+    except Exception:
+        return {"signal": "UNKNOWN"}
+
+
+# ── Symbol Info ──────────────────────────────────────────────────────────────
+
+@router.get("/symbol-info/{symbol}")
+async def symbol_info(symbol: str):
+    try:
+        t = yf.Ticker(symbol)
+        info = t.info
+        return {
+            "symbol": symbol,
+            "name": info.get("shortName", symbol),
+            "sector": info.get("sector", "—"),
+            "industry": info.get("industry", "—"),
+            "market_cap": info.get("marketCap", 0),
+            "pe": info.get("trailingPE", None),
+            "dividend_yield": info.get("dividendYield", None),
+            "52w_high": info.get("fiftyTwoWeekHigh", None),
+            "52w_low": info.get("fiftyTwoWeekLow", None),
+            "avg_volume": info.get("averageVolume", None),
+            "beta": info.get("beta", None),
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+# ── Trade Quality Grader ─────────────────────────────────────────────────────
+
+@router.get("/trade-quality")
+async def trade_quality(request: Request):
+    trades = _bot(request)._trade_log.recent_trades(50)
+    graded = []
+    for t in trades:
+        pnl_pct = t.get("pnl_pct", 0)
+        if pnl_pct > 2.0:
+            grade = "A+"
+        elif pnl_pct > 1.0:
+            grade = "A"
+        elif pnl_pct > 0.5:
+            grade = "B"
+        elif pnl_pct > 0:
+            grade = "C"
+        elif pnl_pct > -0.5:
+            grade = "D"
+        else:
+            grade = "F"
+        graded.append({**t, "grade": grade})
+    return {"graded": graded}
+
+
+# ── R:R Ratio (Risk:Reward per position) ─────────────────────────────────────
+
+@router.get("/risk-reward")
+async def risk_reward(request: Request):
+    bot = _bot(request)
+    if not bot.is_running:
+        return {"positions": []}
+    raw = bot._client.get_positions()
+    out = []
+    for sym, pos in raw.items():
+        try:
+            cost = float(pos["average_buy_price"])
+            current = bot._client.get_current_price(sym) or cost
+            stop = bot._risk.stop_loss_price(cost)
+            risk = abs(current - stop)
+            meta = bot._positions.get(sym)
+            strat = meta["strategy"] if meta else "day"
+            target_pct = 0.005 if strat == "scalp" else 0.02
+            target_price = cost * (1 + target_pct)
+            reward = abs(target_price - current)
+            rr = round(reward / risk, 2) if risk > 0 else 0
+            out.append({"symbol": sym, "rr": rr, "risk": round(risk, 2), "reward": round(reward, 2)})
+        except Exception:
+            pass
+    return {"positions": out}
+
+
+# ── Live Ticker Tape ─────────────────────────────────────────────────────────
+
+@router.get("/ticker-tape")
+async def ticker_tape():
+    symbols = ["SPY", "QQQ", "IWM", "DIA", "NVDA", "AAPL", "TSLA", "MSFT", "AMZN", "META", "GOOGL", "AMD"]
+    tape = []
+    for sym in symbols:
+        try:
+            df = yf.Ticker(sym).history(period="2d")
+            if len(df) >= 2:
+                prev = float(df["Close"].iloc[-2])
+                curr = float(df["Close"].iloc[-1])
+                chg = (curr - prev) / prev * 100
+                tape.append({"symbol": sym, "price": round(curr, 2), "change": round(chg, 2)})
+        except Exception:
+            pass
+    return {"tape": tape}
+
+
+# ── Strategy Parameters Viewer ───────────────────────────────────────────────
+
+@router.get("/strategy/{name}/params")
+async def strategy_params(name: str, request: Request):
+    s = _bot(request).strategy_manager.get(name)
+    if not s:
+        raise HTTPException(status_code=404, detail=f"Strategy {name} not found")
+    return {
+        "name": s.name,
+        "bar_interval": s.bar_interval,
+        "bar_period": s.bar_period,
+        "min_score_to_buy": s.min_score_to_buy,
+        "target_hold_days": s.target_hold_days,
+        "intraday": s.intraday,
+    }

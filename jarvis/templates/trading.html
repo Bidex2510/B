@@ -7,6 +7,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.0/dist/jspdf.plugin.autotable.min.js"></script>
+  <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
 
@@ -556,6 +557,45 @@
     .mover-row { display: flex; justify-content: space-between; align-items: center; padding: 8px; border-bottom: 1px solid var(--line); font-size: 12px; font-family: 'JetBrains Mono', monospace; }
     .mover-row:last-child { border-bottom: none; }
 
+    /* Ticker tape */
+    .ticker-tape { background: var(--panel); border-bottom: 1px solid var(--line); overflow: hidden; padding: 6px 0; }
+    .ticker-track { display: flex; animation: ticker 80s linear infinite; gap: 32px; white-space: nowrap; padding-left: 100%; }
+    @keyframes ticker { from { transform: translateX(0); } to { transform: translateX(-100%); } }
+    .ticker-item { font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+    .ticker-item .sym { color: var(--accent); font-weight: 700; }
+
+    /* Density modes */
+    body.compact .stat { padding: 8px; }
+    body.compact .stat-value { font-size: 14px; }
+    body.compact .positions-table td, body.compact .positions-table th { padding: 6px; }
+    body.compact .chart-panel { padding: 10px; }
+
+    /* Neutral color mode */
+    body.neutral .green, body.neutral .red,
+    body.neutral [style*="color: var(--green)"],
+    body.neutral [style*="color: var(--red)"] { color: var(--text) !important; }
+    body.neutral .stat-value.green, body.neutral .stat-value.red { color: var(--accent) !important; }
+
+    /* Context menu */
+    .context-menu { position: absolute; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 4px 0; z-index: 3000; box-shadow: 0 4px 16px rgba(0,0,0,0.4); min-width: 160px; }
+    .context-menu-item { padding: 8px 14px; cursor: pointer; font-size: 12px; }
+    .context-menu-item:hover { background: var(--panel2); color: var(--accent); }
+
+    /* Sector rows */
+    .sector-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; font-size: 12px; font-family: 'JetBrains Mono', monospace; }
+    .sector-bar { flex: 1; height: 12px; background: var(--panel2); border-radius: 6px; margin: 0 8px; position: relative; overflow: hidden; }
+    .sector-bar-fill { height: 100%; transition: width 0.3s; }
+
+    /* Candlestick modal */
+    #chartModal .modal-content { max-width: 900px; width: 95%; }
+    #candlestickContainer { width: 100%; height: 400px; }
+
+    /* Risk-on/off badge */
+    .ro-badge { display: inline-block; padding: 4px 10px; border-radius: 4px; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; }
+    .ro-on { background: rgba(52,211,153,0.2); color: var(--green); }
+    .ro-off { background: rgba(248,113,113,0.2); color: var(--red); }
+    .ro-neutral { background: rgba(251,191,36,0.2); color: var(--yellow); }
+
     /* Mobile Responsive */
     @media (max-width: 768px) {
       .top-bar {
@@ -661,6 +701,11 @@
 
 <div class="paper-watermark" id="watermark"></div>
 
+<!-- Live Ticker Tape -->
+<div class="ticker-tape" id="tickerTape">
+  <div class="ticker-track" id="tickerTrack"><span class="ticker-item">Loading market data...</span></div>
+</div>
+
 <!-- Top Bar -->
 <div class="top-bar">
   <div class="portfolio-display">
@@ -682,10 +727,15 @@
     <div class="badge" id="strategyBadge">0 strategies</div>
   </div>
 
-  <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+  <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
     <div class="time-display" id="timeDisplay"></div>
-    <button class="btn" onclick="toggleFocusMode()" title="Focus Mode (P&L only)">🎯</button>
-    <button class="btn" onclick="toggleAutoTheme()" title="Auto theme by time of day" id="autoThemeBtn">🌗</button>
+    <button class="btn" onclick="toggleFocusMode()" title="Focus Mode">🎯</button>
+    <button class="btn" onclick="toggleNeutral()" title="Neutral colors" id="neutralBtn">⚖️</button>
+    <button class="btn" onclick="toggleCompact()" title="Compact density" id="compactBtn">⊟</button>
+    <button class="btn" onclick="changeFontSize(1)" title="Bigger text">A+</button>
+    <button class="btn" onclick="changeFontSize(-1)" title="Smaller text">A-</button>
+    <button class="btn" onclick="toggleAutoTheme()" title="Auto theme" id="autoThemeBtn">🌗</button>
+    <button class="btn" onclick="enablePushNotifs()" title="Browser notifications" id="pushBtn">🔔</button>
     <button class="btn" onclick="showModal('shortcuts')" id="helpBtn">?</button>
     <button class="btn" onclick="cycleTheme()" title="Cycle theme">🎨</button>
     <button class="btn" id="mobileToggleBtn" onclick="toggleMobileMode()" style="display: none;">📱</button>
@@ -762,6 +812,12 @@
       </div>
     </div>
 
+    <div style="background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+      <span style="font-size: 12px; color: var(--muted); text-transform: uppercase;">Market Regime:</span>
+      <span class="ro-badge ro-neutral" id="riskBadge">—</span>
+      <span style="font-size: 11px; color: var(--muted);">SPY 10d: <span id="spyChg">—</span> · TLT 10d: <span id="tltChg">—</span></span>
+    </div>
+
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px;">
       <div class="stat">
         <div class="stat-label">VIX (Volatility)</div>
@@ -816,6 +872,16 @@
 
   <!-- ===== POSITIONS TAB ===== -->
   <div id="positions" class="tab-content">
+    <div style="margin-bottom: 12px; display: flex; gap: 8px; align-items: center;">
+      <input type="text" id="posSearch" class="goal-input" placeholder="🔍 Filter by symbol..." style="padding: 8px; flex: 1; max-width: 300px;" oninput="filterPositions()">
+      <select id="posFilter" class="goal-input" style="padding: 8px; max-width: 160px;" onchange="filterPositions()">
+        <option value="all">All</option>
+        <option value="winning">Winning</option>
+        <option value="losing">Losing</option>
+        <option value="day">Day strategy</option>
+        <option value="scalp">Scalp strategy</option>
+      </select>
+    </div>
     <table class="positions-table">
       <thead>
         <tr>
@@ -847,6 +913,7 @@
     <div style="margin-bottom: 15px; display: flex; gap: 8px; flex-wrap: wrap;">
       <button class="btn" onclick="exportCSV()">📥 Export CSV</button>
       <button class="btn" onclick="exportPDF()">📄 Export PDF Report</button>
+      <button class="btn" onclick="exportJSON()">📥 Export JSON</button>
       <button class="btn" onclick="showSessionSummary()">📊 Session Summary</button>
     </div>
 
@@ -1005,6 +1072,11 @@
         </div>
         <div class="help-text" style="margin-top: 8px;">200 random simulations of your next 20 trades based on past P&L distribution.</div>
       </div>
+    </div>
+
+    <div class="chart-panel" style="margin-bottom: 15px;">
+      <div class="chart-title">Sector Rotation (5-Day)</div>
+      <div id="sectorRotation" style="margin-top: 10px;"></div>
     </div>
 
     <div class="charts-row">
@@ -1236,6 +1308,22 @@
 </div>
 
 <!-- Modals -->
+<div id="chartModal" class="modal">
+  <div class="modal-content" style="position: relative;">
+    <button class="modal-close" onclick="closeModal('chart')">×</button>
+    <div class="modal-title" id="chartModalTitle">📈 Chart</div>
+    <div style="display: flex; gap: 6px; margin-bottom: 10px;">
+      <button class="control-btn" onclick="loadChart(window._chartSym, '1d', '1m')">1D 1m</button>
+      <button class="control-btn" onclick="loadChart(window._chartSym, '5d', '5m')">5D 5m</button>
+      <button class="control-btn" onclick="loadChart(window._chartSym, '1mo', '15m')">1M 15m</button>
+      <button class="control-btn" onclick="loadChart(window._chartSym, '3mo', '1h')">3M 1h</button>
+      <button class="control-btn" onclick="loadChart(window._chartSym, '1y', '1d')">1Y 1d</button>
+    </div>
+    <div id="candlestickContainer"></div>
+    <div id="symbolInfoBox" style="margin-top: 12px; font-size: 12px;"></div>
+  </div>
+</div>
+
 <div id="sessionSummaryModal" class="modal">
   <div class="modal-content" style="position: relative; max-width: 600px;">
     <button class="modal-close" onclick="closeModal('sessionSummary')">×</button>
@@ -1500,8 +1588,8 @@
       }
       targetPct = Math.max(0, Math.min(100, targetPct));
 
-      return `<tr>
-        <td><span class="symbol" onclick="copyToClipboard('${p.symbol}')">${p.symbol}</span></td>
+      return `<tr oncontextmenu="showContextMenu(event, '${p.symbol}'); return false;">
+        <td><span class="symbol" onclick="openChart('${p.symbol}')" oncontextmenu="copyToClipboard('${p.symbol}'); return false;" title="Click: chart · Right-click: copy">${p.symbol}</span></td>
         <td>${p.quantity.toFixed(0)}</td>
         <td>$${p.avg_cost.toFixed(2)}</td>
         <td>$${p.current_price.toFixed(2)}</td>
@@ -2418,6 +2506,238 @@
     showModal('sessionSummary');
   }
 
+  // ===== TICKER TAPE =====
+  async function fetchTickerTape() {
+    try {
+      const res = await fetch('/api/trading/ticker-tape');
+      const d = await res.json();
+      const html = d.tape.map(t => `<span class="ticker-item">
+        <span class="sym">${t.symbol}</span> $${t.price.toFixed(2)}
+        <span style="color:${t.change>=0?'var(--green)':'var(--red)'};">${t.change>=0?'▲':'▼'} ${Math.abs(t.change).toFixed(2)}%</span>
+      </span>`).join('');
+      document.getElementById('tickerTrack').innerHTML = html + html;  // duplicate for seamless loop
+    } catch (e) {}
+  }
+
+  // ===== RISK ON/OFF =====
+  async function fetchRiskOnOff() {
+    try {
+      const res = await fetch('/api/trading/risk-on-off');
+      const d = await res.json();
+      const badge = document.getElementById('riskBadge');
+      badge.textContent = d.signal;
+      badge.className = 'ro-badge ' + (d.signal === 'RISK ON' ? 'ro-on' : d.signal === 'RISK OFF' ? 'ro-off' : 'ro-neutral');
+      document.getElementById('spyChg').textContent = (d.spy_10d >= 0 ? '+' : '') + (d.spy_10d || 0).toFixed(2) + '%';
+      document.getElementById('tltChg').textContent = (d.tlt_10d >= 0 ? '+' : '') + (d.tlt_10d || 0).toFixed(2) + '%';
+    } catch (e) {}
+  }
+
+  // ===== SECTOR ROTATION =====
+  async function fetchSectorRotation() {
+    try {
+      const res = await fetch('/api/trading/sector-rotation');
+      const d = await res.json();
+      const el = document.getElementById('sectorRotation');
+      if (!el) return;
+      const max = Math.max(...d.sectors.map(s => Math.abs(s.change_5d)), 1);
+      el.innerHTML = d.sectors.map(s => {
+        const w = (Math.abs(s.change_5d) / max * 100).toFixed(0);
+        const color = s.change_5d >= 0 ? 'var(--green)' : 'var(--red)';
+        return `<div class="sector-row">
+          <span style="min-width:140px; color:var(--accent);">${s.symbol} <span style="color:var(--muted); font-size:11px;">${s.name}</span></span>
+          <div class="sector-bar"><div class="sector-bar-fill" style="width:${w}%; background:${color};"></div></div>
+          <span style="min-width:60px; text-align:right; color:${color};">${s.change_5d>=0?'+':''}${s.change_5d.toFixed(2)}%</span>
+        </div>`;
+      }).join('');
+    } catch (e) {}
+  }
+
+  // ===== CANDLESTICK CHART =====
+  async function openChart(symbol) {
+    window._chartSym = symbol;
+    document.getElementById('chartModalTitle').textContent = '📈 ' + symbol;
+    showModal('chart');
+    await loadChart(symbol, '5d', '5m');
+    await loadSymbolInfo(symbol);
+  }
+
+  async function loadChart(symbol, period, interval) {
+    if (!window.LightweightCharts) { addNotification('Chart library not loaded', 'error'); return; }
+    const container = document.getElementById('candlestickContainer');
+    container.innerHTML = '';
+    const chart = LightweightCharts.createChart(container, {
+      width: container.clientWidth,
+      height: 400,
+      layout: { background: {color: 'transparent'}, textColor: '#8892a6' },
+      grid: { vertLines: {color: 'rgba(255,255,255,0.05)'}, horzLines: {color: 'rgba(255,255,255,0.05)'} },
+      timeScale: { timeVisible: true, secondsVisible: false },
+    });
+    const series = chart.addCandlestickSeries({
+      upColor: '#34d399', downColor: '#f87171',
+      borderUpColor: '#34d399', borderDownColor: '#f87171',
+      wickUpColor: '#34d399', wickDownColor: '#f87171',
+    });
+    try {
+      const res = await fetch(`/api/trading/price-history/${symbol}?period=${period}&interval=${interval}`);
+      const d = await res.json();
+      if (d.error) { container.innerHTML = '<div style="text-align:center; padding:40px; color:var(--red);">' + d.error + '</div>'; return; }
+      series.setData(d.bars);
+      chart.timeScale().fitContent();
+    } catch (e) {
+      container.innerHTML = '<div style="text-align:center; padding:40px; color:var(--red);">Error: ' + e.message + '</div>';
+    }
+  }
+
+  async function loadSymbolInfo(symbol) {
+    try {
+      const res = await fetch('/api/trading/symbol-info/' + symbol);
+      const d = await res.json();
+      if (d.error) return;
+      const fmt = (v, prefix='', suffix='') => v ? prefix + v.toLocaleString() + suffix : '—';
+      document.getElementById('symbolInfoBox').innerHTML = `
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px;">
+          <div><b>${d.name}</b></div>
+          <div>Sector: ${d.sector}</div>
+          <div>Industry: ${d.industry}</div>
+          <div>Market Cap: ${fmt(d.market_cap, '$')}</div>
+          <div>P/E: ${d.pe ? d.pe.toFixed(2) : '—'}</div>
+          <div>Beta: ${d.beta ? d.beta.toFixed(2) : '—'}</div>
+          <div>52w High: ${fmt(d['52w_high'], '$')}</div>
+          <div>52w Low: ${fmt(d['52w_low'], '$')}</div>
+          <div>Avg Vol: ${fmt(d.avg_volume)}</div>
+        </div>`;
+    } catch (e) {}
+  }
+
+  // ===== POSITION FILTER =====
+  function filterPositions() {
+    const search = document.getElementById('posSearch').value.toUpperCase();
+    const filter = document.getElementById('posFilter').value;
+    document.querySelectorAll('#positionsBody tr').forEach(tr => {
+      const sym = tr.cells[0]?.textContent.trim().toUpperCase() || '';
+      const pnlText = tr.cells[4]?.textContent || '';
+      const stratText = tr.cells[9]?.textContent || '';
+      let show = !search || sym.includes(search);
+      if (filter === 'winning') show = show && pnlText.includes('+');
+      else if (filter === 'losing') show = show && pnlText.includes('-');
+      else if (filter === 'day') show = show && stratText.toLowerCase().includes('day');
+      else if (filter === 'scalp') show = show && stratText.toLowerCase().includes('scalp');
+      tr.style.display = show ? '' : 'none';
+    });
+  }
+
+  // ===== CONTEXT MENU =====
+  function showContextMenu(e, symbol) {
+    document.querySelectorAll('.context-menu').forEach(m => m.remove());
+    const menu = document.createElement('div');
+    menu.className = 'context-menu';
+    menu.style.left = e.pageX + 'px';
+    menu.style.top = e.pageY + 'px';
+    menu.innerHTML = `
+      <div class="context-menu-item" onclick="openChart('${symbol}')">📈 View Chart</div>
+      <div class="context-menu-item" onclick="copyToClipboard('${symbol}')">📋 Copy Symbol</div>
+      <div class="context-menu-item" onclick="window.open('https://www.tradingview.com/chart/?symbol=' + '${symbol}', '_blank')">🔗 Open in TradingView</div>
+      <div class="context-menu-item" onclick="window.open('https://finance.yahoo.com/quote/' + '${symbol}', '_blank')">🔗 Yahoo Finance</div>
+      <div class="context-menu-item" onclick="closePos('${symbol}')">✕ Close Position</div>
+      <div class="context-menu-item" onclick="breakEven('${symbol}')">🎯 Set Break-Even</div>
+    `;
+    document.body.appendChild(menu);
+    setTimeout(() => document.addEventListener('click', () => menu.remove(), {once: true}), 0);
+  }
+
+  // ===== BROWSER PUSH NOTIFICATIONS =====
+  function enablePushNotifs() {
+    if (!('Notification' in window)) { addNotification('Push notifications not supported', 'error'); return; }
+    if (Notification.permission === 'granted') {
+      addNotification('Push notifications already enabled');
+      pushNotify('Test', 'Notifications working!');
+      return;
+    }
+    Notification.requestPermission().then(p => {
+      if (p === 'granted') {
+        addNotification('Push notifications enabled');
+        document.getElementById('pushBtn').style.background = 'var(--accent)';
+        document.getElementById('pushBtn').style.color = 'var(--bg)';
+        pushNotify('Trading Bot', 'You will now receive trade alerts.');
+      }
+    });
+  }
+
+  function pushNotify(title, body) {
+    if (Notification.permission !== 'granted') return;
+    try { new Notification(title, {body, icon: '/favicon.ico'}); } catch(e) {}
+  }
+
+  // ===== UI TOGGLES =====
+  function toggleNeutral() {
+    document.body.classList.toggle('neutral');
+    localStorage.setItem('neutral', document.body.classList.contains('neutral'));
+    document.getElementById('neutralBtn').style.background = document.body.classList.contains('neutral') ? 'var(--accent)' : '';
+  }
+
+  function toggleCompact() {
+    document.body.classList.toggle('compact');
+    localStorage.setItem('compact', document.body.classList.contains('compact'));
+    document.getElementById('compactBtn').style.background = document.body.classList.contains('compact') ? 'var(--accent)' : '';
+  }
+
+  let _fontSize = parseInt(localStorage.getItem('fontSize') || 14);
+  function changeFontSize(delta) {
+    _fontSize = Math.max(10, Math.min(20, _fontSize + delta));
+    document.body.style.fontSize = _fontSize + 'px';
+    localStorage.setItem('fontSize', _fontSize);
+  }
+
+  // ===== POWER HOUR / LUNCH / COFFEE ALERTS =====
+  let _powerHourAlerted = false, _lunchAlerted = false, _coffeeStart = Date.now();
+
+  function checkTimeAlerts() {
+    const now = new Date();
+    const h = now.getHours(), m = now.getMinutes();
+
+    // Power Hour: 3:00 - 4:00 PM ET (ignoring TZ for simplicity, uses local time)
+    if (h === 15 && !_powerHourAlerted) {
+      _powerHourAlerted = true;
+      addNotification('⚡ Power Hour started — final hour of trading');
+      pushNotify('⚡ Power Hour', 'The final hour of trading has begun.');
+    }
+
+    // Lunch hour
+    if (h === 11 && m === 30 && !_lunchAlerted) {
+      _lunchAlerted = true;
+      addNotification('🍽️ Lunch hour - liquidity drops, consider stepping away');
+    }
+
+    // Coffee/break reminder (every 90 min)
+    if ((Date.now() - _coffeeStart) > 90 * 60 * 1000) {
+      addNotification('☕ Take a 5-minute break — you\'ve been at this for 90 minutes');
+      pushNotify('☕ Break time', 'Step away from the screen for 5 min.');
+      _coffeeStart = Date.now();
+    }
+
+    // Reset daily flags after midnight
+    if (h === 0 && m === 0) { _powerHourAlerted = false; _lunchAlerted = false; }
+  }
+
+  // ===== JSON EXPORT =====
+  function exportJSON() {
+    const data = {
+      exported: new Date().toISOString(),
+      portfolio_value: botStatus.portfolio_value,
+      stats: botStatus.trade_stats,
+      positions: botStatus.positions,
+      recent_trades: botStatus.recent_trades,
+      by_strategy: botStatus.by_strategy,
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'trading-data-' + new Date().toISOString().slice(0,10) + '.json';
+    a.click();
+    addNotification('JSON exported');
+  }
+
   // ===== EXTENDED REFRESH =====
   function fullRefresh() {
     fetchStatus().then(() => updateAnalytics());
@@ -2430,6 +2750,9 @@
     fetchDrawdown();
     fetchCalendarPnL();
     loadJournal();
+    fetchRiskOnOff();
+    fetchTickerTape();
+    checkTimeAlerts();
     applyAutoTheme();
   }
 
@@ -2437,10 +2760,17 @@
   initTheme();
   initMobileMode();
   if (localStorage.getItem('focusMode') === 'true') document.body.classList.add('focus-mode');
+  if (localStorage.getItem('neutral') === 'true') document.body.classList.add('neutral');
+  if (localStorage.getItem('compact') === 'true') document.body.classList.add('compact');
+  document.body.style.fontSize = _fontSize + 'px';
   if (autoThemeEnabled) {
     document.getElementById('autoThemeBtn').style.background = 'var(--accent)';
     document.getElementById('autoThemeBtn').style.color = 'var(--bg)';
     applyAutoTheme();
+  }
+  if (Notification && Notification.permission === 'granted') {
+    document.getElementById('pushBtn').style.background = 'var(--accent)';
+    document.getElementById('pushBtn').style.color = 'var(--bg)';
   }
   fetchStatus();
   fetchVIX();
@@ -2458,6 +2788,9 @@
   fetchEarnings();
   fetchCalendarPnL();
   loadJournal();
+  fetchRiskOnOff();
+  fetchTickerTape();
+  fetchSectorRotation();
   setConnectionStatus(navigator.onLine);
   window.addEventListener('online', () => setConnectionStatus(true));
   window.addEventListener('offline', () => setConnectionStatus(false));
@@ -2468,6 +2801,8 @@
   setInterval(fetchMonteCarlo, 120000);
   setInterval(fetchPremarket, 60000);
   setInterval(fetchEarnings, 300000);
+  setInterval(fetchSectorRotation, 60000);
+  setInterval(fetchTickerTape, 30000);
 </script>
 
 </body>
