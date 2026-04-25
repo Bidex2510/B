@@ -1081,6 +1081,87 @@
 
     <div class="charts-row">
       <div class="chart-panel">
+        <div class="chart-title">Rolling Win Rate (last 10 trades)</div>
+        <canvas id="rollingChart"></canvas>
+      </div>
+      <div class="chart-panel">
+        <div class="chart-title">Bot vs SPY Benchmark</div>
+        <div class="stats-grid" style="margin-top: 10px;">
+          <div class="stat">
+            <div class="stat-label">Your Return</div>
+            <div class="stat-value" id="bmBot">—</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">SPY Return</div>
+            <div class="stat-value" id="bmSpy">—</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Alpha</div>
+            <div class="stat-value" id="bmAlpha">—</div>
+          </div>
+        </div>
+        <div class="help-text" style="margin-top: 8px;">Alpha = how much you beat (or lost vs.) just buying SPY.</div>
+      </div>
+    </div>
+
+    <div class="charts-row">
+      <div class="chart-panel">
+        <div class="chart-title">🏆 Top Symbols</div>
+        <table class="positions-table" style="font-size: 12px;">
+          <thead><tr><th>Symbol</th><th>Trades</th><th>Win %</th><th>P&L</th></tr></thead>
+          <tbody id="topSyms"></tbody>
+        </table>
+      </div>
+      <div class="chart-panel">
+        <div class="chart-title">💀 Bottom Symbols</div>
+        <table class="positions-table" style="font-size: 12px;">
+          <thead><tr><th>Symbol</th><th>Trades</th><th>Win %</th><th>P&L</th></tr></thead>
+          <tbody id="bottomSyms"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="charts-row">
+      <div class="chart-panel">
+        <div class="chart-title">🥇 Best Trades</div>
+        <table class="positions-table" style="font-size: 12px;">
+          <thead><tr><th>Date</th><th>Symbol</th><th>P&L %</th><th>P&L $</th></tr></thead>
+          <tbody id="bestTrades"></tbody>
+        </table>
+      </div>
+      <div class="chart-panel">
+        <div class="chart-title">💔 Worst Trades</div>
+        <table class="positions-table" style="font-size: 12px;">
+          <thead><tr><th>Date</th><th>Symbol</th><th>P&L %</th><th>P&L $</th></tr></thead>
+          <tbody id="worstTrades"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="chart-panel" style="margin-bottom: 15px;">
+      <div class="chart-title">Hold Time Stats</div>
+      <div class="stats-grid" style="margin-top: 10px;">
+        <div class="stat">
+          <div class="stat-label">Avg Hold</div>
+          <div class="stat-value" id="htAvg">—</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Min Hold</div>
+          <div class="stat-value" id="htMin">—</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Max Hold</div>
+          <div class="stat-value" id="htMax">—</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Sample</div>
+          <div class="stat-value" id="htCount">—</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="charts-row">
+      <div class="chart-panel">
         <div class="chart-title">Pre-Market Movers</div>
         <div id="premarketList" style="margin-top: 10px;"></div>
       </div>
@@ -1117,8 +1198,27 @@
   <div id="settings" class="tab-content">
 
     <div class="chart-panel" style="margin-bottom: 15px;">
-      <div class="chart-title">Strategy Toggles</div>
+      <div class="chart-title">Strategy Toggles & Parameters</div>
       <div id="strategyToggles" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; margin-top: 10px;"></div>
+      <div style="margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line);">
+        <div style="font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">Tune Strategy Threshold</div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: end;">
+          <div>
+            <label style="font-size: 11px; color: var(--muted);">Strategy</label>
+            <select id="spStrat" class="goal-input" style="padding: 8px;">
+              <option value="day">Day</option><option value="scalp">Scalp</option>
+              <option value="swing">Swing</option><option value="trend">Trend</option>
+              <option value="position">Position</option><option value="breakout">Breakout</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size: 11px; color: var(--muted);">Min Score (0.5 - 0.85)</label>
+            <input type="number" id="spMinScore" class="goal-input" placeholder="0.58" step="0.01" min="0.3" max="0.95" style="padding: 8px;">
+          </div>
+          <button class="btn btn-start" onclick="saveStrategyParams()">Save</button>
+        </div>
+        <div class="help-text">Lower = more frequent trades. Higher = pickier, only stronger signals.</div>
+      </div>
     </div>
 
     <div class="chart-panel" style="margin-bottom: 15px;">
@@ -1303,7 +1403,11 @@
     <span class="status-indicator status-online" id="connStatus"></span>
     <span id="connText">Connected</span>
   </div>
-  <div id="statusCenter" style="text-align: center; color: var(--muted);">v1.0 • Trading Bot Dashboard</div>
+  <div id="statusCenter" style="text-align: center; color: var(--muted);">
+    Uptime: <span id="srvUptime" style="font-family: 'JetBrains Mono', monospace;">—</span> •
+    Scans: <span id="srvScans" style="font-family: 'JetBrains Mono', monospace;">0</span> •
+    Latency: <span id="srvLatency" style="font-family: 'JetBrains Mono', monospace;">—</span>
+  </div>
   <div id="statusRight" style="text-align: right;">Last update: <span id="lastUpdate" style="font-family: 'JetBrains Mono', monospace;">—</span></div>
 </div>
 
@@ -2738,6 +2842,129 @@
     addNotification('JSON exported');
   }
 
+  // ===== ROLLING WIN RATE =====
+  async function fetchRollingWinrate() {
+    try {
+      const res = await fetch('/api/trading/rolling-winrate');
+      const d = await res.json();
+      const ctx = document.getElementById('rollingChart');
+      if (!ctx || !d.rolling.length) return;
+      if (window.rollingChartInst) window.rollingChartInst.destroy();
+      window.rollingChartInst = new Chart(ctx, {
+        type: 'line',
+        data: {labels: d.rolling.map((_,i)=>i+1), datasets:[{
+          label:'Win Rate %', data: d.rolling, borderColor:'#22d3ee',
+          backgroundColor:'rgba(34,211,238,0.1)', fill:true, tension:0.4, pointRadius:0, borderWidth:2}]},
+        options:{responsive:true, plugins:{legend:{display:false}},
+          scales:{y:{min:0,max:100,grid:{color:'rgba(255,255,255,0.05)'},ticks:{color:'#8892a6',callback:v=>v+'%'}},x:{display:false}}}
+      });
+    } catch (e) {}
+  }
+
+  // ===== SYMBOL LEADERBOARD =====
+  async function fetchSymbolLeaderboard() {
+    try {
+      const res = await fetch('/api/trading/symbol-leaderboard');
+      const d = await res.json();
+      const renderRow = s => `<tr>
+        <td style="color:var(--accent); cursor:pointer;" onclick="openChart('${s.symbol}')">${s.symbol}</td>
+        <td>${s.trades}</td>
+        <td>${s.win_rate.toFixed(0)}%</td>
+        <td style="color:${s.pnl>=0?'var(--green)':'var(--red)'};">$${s.pnl.toFixed(2)}</td>
+      </tr>`;
+      const top = document.getElementById('topSyms');
+      const bot = document.getElementById('bottomSyms');
+      if (top) top.innerHTML = d.top_5.length ? d.top_5.map(renderRow).join('') : '<tr><td colspan="4" style="text-align:center; color:var(--muted); padding:12px;">No trades</td></tr>';
+      if (bot) bot.innerHTML = d.bottom_5.length ? d.bottom_5.map(renderRow).join('') : '<tr><td colspan="4" style="text-align:center; color:var(--muted); padding:12px;">No trades</td></tr>';
+    } catch (e) {}
+  }
+
+  // ===== BEST / WORST TRADES =====
+  async function fetchBestWorst() {
+    try {
+      const res = await fetch('/api/trading/best-worst-trades');
+      const d = await res.json();
+      const renderRow = t => `<tr>
+        <td style="font-size:11px;">${(t.exit_date||'').slice(0,10)}</td>
+        <td style="color:var(--accent); cursor:pointer;" onclick="openChart('${t.symbol}')">${t.symbol}</td>
+        <td style="color:${(t.pnl_pct||0)>=0?'var(--green)':'var(--red)'};">${(t.pnl_pct||0).toFixed(2)}%</td>
+        <td style="color:${(t.pnl||0)>=0?'var(--green)':'var(--red)'};">$${(t.pnl||0).toFixed(2)}</td>
+      </tr>`;
+      const best = document.getElementById('bestTrades');
+      const worst = document.getElementById('worstTrades');
+      if (best) best.innerHTML = d.best.length ? d.best.map(renderRow).join('') : '<tr><td colspan="4" style="text-align:center; color:var(--muted); padding:12px;">No trades</td></tr>';
+      if (worst) worst.innerHTML = d.worst.length ? d.worst.map(renderRow).join('') : '<tr><td colspan="4" style="text-align:center; color:var(--muted); padding:12px;">No trades</td></tr>';
+    } catch (e) {}
+  }
+
+  // ===== HOLD TIME =====
+  async function fetchHoldTime() {
+    try {
+      const res = await fetch('/api/trading/hold-time-stats');
+      const d = await res.json();
+      const fmt = m => m < 60 ? m.toFixed(0) + ' min' : (m/60).toFixed(1) + ' hr';
+      const el = id => document.getElementById(id);
+      if (el('htAvg')) el('htAvg').textContent = d.count ? fmt(d.avg) : '—';
+      if (el('htMin')) el('htMin').textContent = d.count ? fmt(d.min) : '—';
+      if (el('htMax')) el('htMax').textContent = d.count ? fmt(d.max) : '—';
+      if (el('htCount')) el('htCount').textContent = d.count;
+    } catch (e) {}
+  }
+
+  // ===== BENCHMARK =====
+  async function fetchBenchmark() {
+    try {
+      const res = await fetch('/api/trading/benchmark');
+      const d = await res.json();
+      const fmt = (v, id) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.textContent = (v >= 0 ? '+' : '') + v.toFixed(2) + '%';
+        el.className = 'stat-value ' + (v >= 0 ? 'green' : 'red');
+      };
+      fmt(d.bot_return, 'bmBot');
+      fmt(d.spy_return, 'bmSpy');
+      fmt(d.alpha, 'bmAlpha');
+    } catch (e) {}
+  }
+
+  // ===== SERVER HEALTH / LATENCY =====
+  async function fetchHealth() {
+    const start = performance.now();
+    try {
+      const res = await fetch('/api/trading/health');
+      const latency = Math.round(performance.now() - start);
+      const d = await res.json();
+      document.getElementById('srvUptime').textContent = d.uptime_human;
+      document.getElementById('srvScans').textContent = d.scan_count;
+      document.getElementById('srvLatency').textContent = latency + 'ms';
+    } catch (e) {
+      document.getElementById('srvLatency').textContent = '—';
+    }
+  }
+
+  // ===== STRATEGY PARAMS =====
+  async function loadStrategyParamForm() {
+    const name = document.getElementById('spStrat').value;
+    try {
+      const res = await fetch('/api/trading/strategy/' + name + '/params');
+      const d = await res.json();
+      document.getElementById('spMinScore').value = d.min_score_to_buy;
+    } catch (e) {}
+  }
+
+  async function saveStrategyParams() {
+    const name = document.getElementById('spStrat').value;
+    const score = parseFloat(document.getElementById('spMinScore').value);
+    if (isNaN(score)) { addNotification('Enter valid score', 'error'); return; }
+    const res = await fetch('/api/trading/strategy/' + name + '/params', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({min_score_to_buy: score})
+    });
+    const d = await res.json();
+    addNotification(d.message);
+  }
+
   // ===== EXTENDED REFRESH =====
   function fullRefresh() {
     fetchStatus().then(() => updateAnalytics());
@@ -2752,6 +2979,12 @@
     loadJournal();
     fetchRiskOnOff();
     fetchTickerTape();
+    fetchRollingWinrate();
+    fetchSymbolLeaderboard();
+    fetchBestWorst();
+    fetchHoldTime();
+    fetchBenchmark();
+    fetchHealth();
     checkTimeAlerts();
     applyAutoTheme();
   }
@@ -2791,6 +3024,14 @@
   fetchRiskOnOff();
   fetchTickerTape();
   fetchSectorRotation();
+  fetchRollingWinrate();
+  fetchSymbolLeaderboard();
+  fetchBestWorst();
+  fetchHoldTime();
+  fetchBenchmark();
+  fetchHealth();
+  loadStrategyParamForm();
+  document.getElementById('spStrat')?.addEventListener('change', loadStrategyParamForm);
   setConnectionStatus(navigator.onLine);
   window.addEventListener('online', () => setConnectionStatus(true));
   window.addEventListener('offline', () => setConnectionStatus(false));

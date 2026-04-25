@@ -849,3 +849,124 @@ async def strategy_params(name: str, request: Request):
         "target_hold_days": s.target_hold_days,
         "intraday": s.intraday,
     }
+
+
+class StrategyParamsRequest(BaseModel):
+    min_score_to_buy: float | None = None
+
+
+@router.post("/strategy/{name}/params")
+async def update_strategy_params(name: str, req: StrategyParamsRequest, request: Request):
+    s = _bot(request).strategy_manager.get(name)
+    if not s:
+        raise HTTPException(status_code=404, detail=f"Strategy {name} not found")
+    if req.min_score_to_buy is not None:
+        s.min_score_to_buy = req.min_score_to_buy
+    return {"message": f"{name} params updated"}
+
+
+# ── Symbol Performance Leaderboard ───────────────────────────────────────────
+
+@router.get("/symbol-leaderboard")
+async def symbol_leaderboard(request: Request):
+    trades = _bot(request)._trade_log.recent_trades(500)
+    by_sym: dict = {}
+    for t in trades:
+        sym = t.get("symbol", "?")
+        by_sym.setdefault(sym, {"trades": 0, "pnl": 0.0, "wins": 0})
+        by_sym[sym]["trades"] += 1
+        by_sym[sym]["pnl"] = round(by_sym[sym]["pnl"] + t.get("pnl", 0), 2)
+        if t.get("pnl", 0) > 0:
+            by_sym[sym]["wins"] += 1
+    out = [{"symbol": s, **v, "win_rate": round(v["wins"] / v["trades"] * 100, 1) if v["trades"] else 0} for s, v in by_sym.items()]
+    out.sort(key=lambda x: x["pnl"], reverse=True)
+    return {"top_5": out[:5], "bottom_5": out[-5:][::-1] if len(out) > 5 else [], "all": out}
+
+
+# ── Hold Time Distribution ───────────────────────────────────────────────────
+
+@router.get("/hold-time-stats")
+async def hold_time_stats(request: Request):
+    trades = _bot(request)._trade_log.recent_trades(200)
+    durations = []
+    for t in trades:
+        try:
+            entry = datetime.fromisoformat(t.get("entry_date", ""))
+            exit_ = datetime.fromisoformat(t.get("exit_date", ""))
+            durations.append((exit_ - entry).total_seconds() / 60)
+        except Exception:
+            pass
+    if not durations:
+        return {"avg": 0, "min": 0, "max": 0, "count": 0}
+    return {"avg": round(sum(durations)/len(durations), 1),
+            "min": round(min(durations), 1), "max": round(max(durations), 1),
+            "count": len(durations)}
+
+
+# ── Win Rate over Time (rolling 10) ──────────────────────────────────────────
+
+@router.get("/rolling-winrate")
+async def rolling_winrate(request: Request):
+    trades = list(reversed(_bot(request)._trade_log.recent_trades(200)))
+    window = 10
+    rolling = []
+    for i in range(window, len(trades) + 1):
+        slice_ = trades[i-window:i]
+        wr = sum(1 for t in slice_ if t.get("pnl", 0) > 0) / window * 100
+        rolling.append(round(wr, 1))
+    return {"rolling": rolling}
+
+
+# ── Best / Worst Trades ──────────────────────────────────────────────────────
+
+@router.get("/best-worst-trades")
+async def best_worst(request: Request):
+    trades = _bot(request)._trade_log.recent_trades(500)
+    if not trades:
+        return {"best": [], "worst": []}
+    sorted_trades = sorted(trades, key=lambda t: t.get("pnl", 0))
+    return {"best": sorted_trades[-5:][::-1], "worst": sorted_trades[:5]}
+
+
+# ── Benchmark vs SPY ─────────────────────────────────────────────────────────
+
+@router.get("/benchmark")
+async def benchmark(request: Request):
+    bot = _bot(request)
+    history = bot._trade_log.equity_history()
+    if len(history) < 2:
+        return {"bot_return": 0, "spy_return": 0, "alpha": 0}
+    start_t = history[0]["t"][:10]
+    end_t = history[-1]["t"][:10]
+    bot_ret = (history[-1]["v"] - history[0]["v"]) / history[0]["v"] * 100 if history[0]["v"] else 0
+    try:
+        spy = yf.Ticker("SPY").history(start=start_t, end=end_t)
+        if len(spy) >= 2:
+            spy_ret = (spy["Close"].iloc[-1] - spy["Close"].iloc[0]) / spy["Close"].iloc[0] * 100
+        else:
+            spy_ret = 0
+    except Exception:
+        spy_ret = 0
+    return {"bot_return": round(bot_ret, 2), "spy_return": round(float(spy_ret), 2),
+            "alpha": round(bot_ret - float(spy_ret), 2)}
+
+
+# ── Server Health ────────────────────────────────────────────────────────────
+
+import time
+_server_start = time.time()
+
+
+@router.get("/health")
+async def health(request: Request):
+    bot = _bot(request)
+    uptime = time.time() - _server_start
+    h = int(uptime // 3600)
+    m = int((uptime % 3600) // 60)
+    return {
+        "uptime_seconds": int(uptime),
+        "uptime_human": f"{h}h {m}m",
+        "bot_running": bot.is_running,
+        "scan_count": getattr(bot, "_scan_count", 0),
+        "last_scan_iso": getattr(bot, "_last_scan_iso", ""),
+    }
