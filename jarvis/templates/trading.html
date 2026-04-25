@@ -662,7 +662,9 @@
     <button class="tab-btn" onclick="switchTab('positions')">Positions</button>
     <button class="tab-btn" onclick="switchTab('history')">History</button>
     <button class="tab-btn" onclick="switchTab('backtest')">Backtest</button>
-    <button class="tab-btn" onclick="switchTab('log')">Activity Log</button>
+    <button class="tab-btn" onclick="switchTab('analytics')">Analytics</button>
+    <button class="tab-btn" onclick="switchTab('settings')">Settings</button>
+    <button class="tab-btn" onclick="switchTab('log')">Log</button>
   </div>
 
   <!-- ===== OVERVIEW TAB ===== -->
@@ -813,6 +815,134 @@
         </tr>
       </tbody>
     </table>
+  </div>
+
+  <!-- ===== ANALYTICS TAB ===== -->
+  <div id="analytics" class="tab-content">
+
+    <div class="charts-row">
+      <div class="chart-panel">
+        <div class="chart-title">P&L by Day of Week</div>
+        <canvas id="dayChart"></canvas>
+      </div>
+      <div class="chart-panel">
+        <div class="chart-title">P&L by Hour of Day</div>
+        <canvas id="hourChart"></canvas>
+      </div>
+    </div>
+
+    <div class="chart-panel" style="margin-bottom: 15px;">
+      <div class="chart-title">Market Indicators</div>
+      <div id="marketIndicators" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; margin-top: 8px;"></div>
+    </div>
+
+    <div class="chart-panel" style="margin-bottom: 15px;">
+      <div class="chart-title">Strategy Performance</div>
+      <table class="positions-table" id="stratPerfTable">
+        <thead><tr><th>Strategy</th><th>Trades</th><th>Win %</th><th>Avg P&L</th><th>Total P&L</th></tr></thead>
+        <tbody id="stratPerfBody"></tbody>
+      </table>
+    </div>
+
+    <div class="chart-panel" style="margin-bottom: 15px;">
+      <div class="chart-title">PDT & Daily Trade Tracker</div>
+      <div class="stats-grid" style="margin-top: 10px;">
+        <div class="stat">
+          <div class="stat-label">Today's Trades</div>
+          <div class="stat-value" id="dailyTrades">0</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">PDT Used (5d)</div>
+          <div class="stat-value" id="pdtUsed">0 / 3</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">PDT Active</div>
+          <div class="stat-value" id="pdtActive">—</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Max Trades/Day</div>
+          <div class="stat-value" id="maxTrades">Unlimited</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== SETTINGS TAB ===== -->
+  <div id="settings" class="tab-content">
+
+    <div class="chart-panel" style="margin-bottom: 15px;">
+      <div class="chart-title">Strategy Toggles</div>
+      <div id="strategyToggles" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; margin-top: 10px;"></div>
+    </div>
+
+    <div class="chart-panel" style="margin-bottom: 15px;">
+      <div class="chart-title">Risk Settings (live edit)</div>
+      <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; margin-top: 10px;">
+        <div>
+          <label style="font-size: 11px; color: var(--muted);">Circuit Breaker %</label>
+          <input type="number" id="rsDailyLoss" class="goal-input" placeholder="-5" step="1">
+          <div class="help-text">Daily max loss before freeze (e.g. -5 = -5%)</div>
+        </div>
+        <div>
+          <label style="font-size: 11px; color: var(--muted);">Hard Stop Loss %</label>
+          <input type="number" id="rsStopLoss" class="goal-input" placeholder="-2" step="0.5">
+          <div class="help-text">Stop loss per position (e.g. -2 = -2%)</div>
+        </div>
+        <div>
+          <label style="font-size: 11px; color: var(--muted);">Trailing Stop %</label>
+          <input type="number" id="rsTrailingStop" class="goal-input" placeholder="-3" step="0.5">
+          <div class="help-text">Trailing stop from peak (e.g. -3 = -3%)</div>
+        </div>
+        <div>
+          <label style="font-size: 11px; color: var(--muted);">Max Position Size %</label>
+          <input type="number" id="rsMaxPos" class="goal-input" placeholder="10" step="1">
+          <div class="help-text">Max % of portfolio per trade</div>
+        </div>
+      </div>
+      <div style="display: flex; gap: 8px; margin-top: 12px;">
+        <button class="btn" onclick="loadRiskSettings()" style="flex: 1;">↓ Load Current</button>
+        <button class="btn btn-start" onclick="saveRiskSettings()" style="flex: 1;">✓ Save Settings</button>
+      </div>
+      <div class="help-text" id="riskSaveStatus" style="margin-top: 8px;"></div>
+    </div>
+
+    <div class="chart-panel" style="margin-bottom: 15px;">
+      <div class="chart-title">Watchlist Editor</div>
+      <div style="display: flex; gap: 8px; margin-top: 10px;">
+        <input type="text" id="wlInput" class="goal-input" placeholder="Add symbol (e.g. NVDA)" style="flex: 1; padding: 8px; text-transform: uppercase;">
+        <button class="btn btn-start" onclick="watchlistAdd()">Add</button>
+      </div>
+      <div id="watchlistDisplay" style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px;"></div>
+    </div>
+
+    <div class="chart-panel" style="margin-bottom: 15px;">
+      <div class="chart-title">Custom Price Alerts</div>
+      <div style="display: grid; grid-template-columns: 1fr 1fr auto auto; gap: 8px; margin-top: 10px; align-items: end;">
+        <div>
+          <label style="font-size: 11px; color: var(--muted);">Symbol</label>
+          <input type="text" id="alertSymbol" class="goal-input" placeholder="AAPL" style="padding: 8px; text-transform: uppercase;">
+        </div>
+        <div>
+          <label style="font-size: 11px; color: var(--muted);">Price</label>
+          <input type="number" id="alertPrice" class="goal-input" placeholder="150.00" step="0.01" style="padding: 8px;">
+        </div>
+        <div>
+          <label style="font-size: 11px; color: var(--muted);">Direction</label>
+          <select id="alertDir" class="goal-input" style="padding: 8px;">
+            <option value="above">Above</option>
+            <option value="below">Below</option>
+          </select>
+        </div>
+        <button class="btn btn-start" onclick="addPriceAlert()" style="align-self: end;">Set Alert</button>
+      </div>
+      <div id="alertsList" style="margin-top: 10px;"></div>
+    </div>
+
+    <div class="chart-panel" style="margin-bottom: 15px;">
+      <div class="chart-title">Telegram Notifications</div>
+      <div class="help-text" style="margin-bottom: 10px;">Status: <span id="telegramStatus">Checking...</span></div>
+      <button class="btn" onclick="testTelegram()" style="width: 100%;">📱 Send Test Message</button>
+    </div>
   </div>
 
   <!-- ===== BACKTEST TAB ===== -->
@@ -1492,6 +1622,232 @@
     }
   });
 
+  // ===== MARKET INDICATORS =====
+  async function fetchMarketIndicators() {
+    try {
+      const res = await fetch('/api/trading/market-indicators');
+      const data = await res.json();
+      const el = document.getElementById('marketIndicators');
+      if (!el) return;
+      el.innerHTML = data.indicators.map(ind => {
+        const pos = ind.change_pct >= 0;
+        return `<div class="stat" style="text-align:center;">
+          <div class="stat-label">${ind.label}</div>
+          <div style="font-family:'JetBrains Mono',monospace; font-size:14px; font-weight:700;">$${ind.price.toFixed(2)}</div>
+          <div style="font-size:12px; color:${pos ? 'var(--green)' : 'var(--red)'};">${pos ? '▲' : '▼'} ${Math.abs(ind.change_pct).toFixed(2)}%</div>
+        </div>`;
+      }).join('');
+    } catch (e) {}
+  }
+
+  // ===== STRATEGY TOGGLES =====
+  async function loadStrategyToggles() {
+    try {
+      const res = await fetch('/api/trading/strategy/status');
+      const data = await res.json();
+      const el = document.getElementById('strategyToggles');
+      if (!el) return;
+      const icons = {day:'📅', scalp:'⚡', swing:'🌊', trend:'📈', position:'💼', breakout:'🚀'};
+      el.innerHTML = data.all.map(name => {
+        const on = data.enabled.includes(name);
+        return `<div style="background:var(--panel2); border:1px solid ${on ? 'var(--green)' : 'var(--line)'}; border-radius:8px; padding:12px; text-align:center; cursor:pointer;" onclick="toggleStrategy('${name}')">
+          <div style="font-size:20px; margin-bottom:6px;">${icons[name] || '📊'}</div>
+          <div style="font-weight:700; text-transform:capitalize;">${name}</div>
+          <div style="font-size:11px; margin-top:4px; color:${on ? 'var(--green)' : 'var(--red)'};">${on ? '● ON' : '○ OFF'}</div>
+        </div>`;
+      }).join('');
+    } catch (e) {}
+  }
+
+  async function toggleStrategy(name) {
+    const res = await fetch(`/api/trading/strategy/${name}/toggle`, {method:'POST'});
+    const data = await res.json();
+    addNotification(data.message);
+    loadStrategyToggles();
+  }
+
+  // ===== RISK SETTINGS =====
+  async function loadRiskSettings() {
+    try {
+      const res = await fetch('/api/trading/risk-settings');
+      const data = await res.json();
+      document.getElementById('rsDailyLoss').value = (data.daily_max_loss_pct * 100).toFixed(0);
+      document.getElementById('rsStopLoss').value = (data.stop_loss_pct * 100).toFixed(1);
+      document.getElementById('rsTrailingStop').value = (data.trailing_stop_pct * 100).toFixed(1);
+      document.getElementById('rsMaxPos').value = (data.max_position_pct * 100).toFixed(0);
+      document.getElementById('riskSaveStatus').textContent = 'Settings loaded.';
+    } catch (e) {
+      document.getElementById('riskSaveStatus').textContent = 'Error loading settings.';
+    }
+  }
+
+  async function saveRiskSettings() {
+    const body = {
+      daily_max_loss_pct: parseFloat(document.getElementById('rsDailyLoss').value) / 100 || null,
+      stop_loss_pct: parseFloat(document.getElementById('rsStopLoss').value) / 100 || null,
+      trailing_stop_pct: parseFloat(document.getElementById('rsTrailingStop').value) / 100 || null,
+      max_position_pct: parseFloat(document.getElementById('rsMaxPos').value) / 100 || null,
+    };
+    try {
+      const res = await fetch('/api/trading/risk-settings', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+      const data = await res.json();
+      document.getElementById('riskSaveStatus').textContent = data.message;
+      addNotification(data.message);
+    } catch (e) {
+      document.getElementById('riskSaveStatus').textContent = 'Error saving settings.';
+    }
+  }
+
+  // ===== WATCHLIST =====
+  async function loadWatchlist() {
+    try {
+      const res = await fetch('/api/trading/watchlist');
+      const data = await res.json();
+      const el = document.getElementById('watchlistDisplay');
+      if (!el) return;
+      el.innerHTML = data.symbols.map(s => `
+        <span style="background:var(--panel2); border:1px solid var(--line); padding:4px 10px; border-radius:20px; font-size:12px; font-family:'JetBrains Mono',monospace; cursor:pointer;" onclick="watchlistRemove('${s}')">
+          ${s} ✕
+        </span>`).join('');
+    } catch (e) {}
+  }
+
+  async function watchlistAdd() {
+    const sym = document.getElementById('wlInput').value.toUpperCase().trim();
+    if (!sym) return;
+    const res = await fetch('/api/trading/watchlist/add', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({symbol:sym})});
+    const data = await res.json();
+    addNotification(data.message);
+    document.getElementById('wlInput').value = '';
+    loadWatchlist();
+  }
+
+  async function watchlistRemove(sym) {
+    const res = await fetch('/api/trading/watchlist/remove', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({symbol:sym})});
+    const data = await res.json();
+    addNotification(data.message);
+    loadWatchlist();
+  }
+
+  // ===== PRICE ALERTS =====
+  async function loadAlerts() {
+    try {
+      const res = await fetch('/api/trading/alerts');
+      const data = await res.json();
+      const el = document.getElementById('alertsList');
+      if (!el) return;
+      if (!data.alerts.length) {
+        el.innerHTML = '<div style="color:var(--muted); font-size:12px; padding:8px;">No alerts set.</div>';
+        return;
+      }
+      el.innerHTML = data.alerts.map((a, i) => `
+        <div style="display:flex; justify-content:space-between; align-items:center; padding:8px; background:var(--panel2); border-radius:6px; margin-top:6px; font-size:12px;">
+          <span style="font-family:'JetBrains Mono',monospace;">${a.symbol} ${a.direction} $${a.price.toFixed(2)}</span>
+          <span style="color:${a.triggered ? 'var(--green)' : 'var(--muted)'};">${a.triggered ? '✓ Triggered' : 'Pending'}</span>
+          <button class="control-btn" onclick="deleteAlert(${i})">✕</button>
+        </div>`).join('');
+    } catch (e) {}
+  }
+
+  async function addPriceAlert() {
+    const symbol = document.getElementById('alertSymbol').value.toUpperCase();
+    const price = parseFloat(document.getElementById('alertPrice').value);
+    const direction = document.getElementById('alertDir').value;
+    if (!symbol || !price) { addNotification('Fill all alert fields', 'error'); return; }
+    const res = await fetch('/api/trading/alerts/add', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({symbol, price, direction})});
+    const data = await res.json();
+    addNotification(data.message);
+    document.getElementById('alertSymbol').value = '';
+    document.getElementById('alertPrice').value = '';
+    loadAlerts();
+  }
+
+  async function deleteAlert(idx) {
+    await fetch(`/api/trading/alerts/${idx}`, {method:'DELETE'});
+    loadAlerts();
+  }
+
+  // ===== TELEGRAM TEST =====
+  async function testTelegram() {
+    try {
+      const res = await fetch('/api/trading/telegram/test', {method:'POST'});
+      const data = await res.json();
+      addNotification(data.message);
+    } catch (e) {
+      addNotification('Error: ' + e.message, 'error');
+    }
+  }
+
+  // ===== PERFORMANCE CHARTS =====
+  async function loadPerformanceCharts() {
+    try {
+      const [dayRes, hourRes] = await Promise.all([
+        fetch('/api/trading/performance/days'),
+        fetch('/api/trading/performance/hours'),
+      ]);
+      const dayData = await dayRes.json();
+      const hourData = await hourRes.json();
+
+      const dayChart = document.getElementById('dayChart');
+      if (dayChart && Object.keys(dayData.by_day).length > 0) {
+        const labels = Object.keys(dayData.by_day);
+        const values = labels.map(k => dayData.by_day[k].pnl);
+        if (window.dayChartInst) window.dayChartInst.destroy();
+        window.dayChartInst = new Chart(dayChart, {
+          type: 'bar',
+          data: {labels, datasets:[{label:'P&L', data:values,
+            backgroundColor: values.map(v => v >= 0 ? 'rgba(52,211,153,0.7)' : 'rgba(248,113,113,0.7)')}]},
+          options: {responsive:true, plugins:{legend:{display:false}},
+            scales:{y:{grid:{color:'rgba(255,255,255,0.1)'}, ticks:{color:'#8892a6'}}, x:{ticks:{color:'#8892a6'}}}}
+        });
+      }
+
+      const hourChart = document.getElementById('hourChart');
+      if (hourChart && Object.keys(hourData.by_hour).length > 0) {
+        const labels = Object.keys(hourData.by_hour).map(h => h + ':00');
+        const values = Object.values(hourData.by_hour).map(v => v.pnl);
+        if (window.hourChartInst) window.hourChartInst.destroy();
+        window.hourChartInst = new Chart(hourChart, {
+          type: 'bar',
+          data: {labels, datasets:[{label:'P&L by Hour', data:values,
+            backgroundColor: values.map(v => v >= 0 ? 'rgba(52,211,153,0.7)' : 'rgba(248,113,113,0.7)')}]},
+          options: {responsive:true, plugins:{legend:{display:false}},
+            scales:{y:{grid:{color:'rgba(255,255,255,0.1)'}, ticks:{color:'#8892a6'}}, x:{ticks:{color:'#8892a6'}}}}
+        });
+      }
+    } catch (e) {}
+  }
+
+  function updateStrategyPerformance() {
+    const byStrat = botStatus.by_strategy || {};
+    const body = document.getElementById('stratPerfBody');
+    if (!body) return;
+    if (!Object.keys(byStrat).length) {
+      body.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:20px;">No trades yet</td></tr>';
+      return;
+    }
+    body.innerHTML = Object.entries(byStrat).map(([name, s]) => `<tr>
+      <td>${name}</td>
+      <td>${s.num_trades || 0}</td>
+      <td>${((s.win_rate || 0) * 100).toFixed(0)}%</td>
+      <td style="color:${(s.avg_pnl || 0) >= 0 ? 'var(--green)' : 'var(--red)'};">$${(s.avg_pnl || 0).toFixed(2)}</td>
+      <td style="color:${(s.total_pnl || 0) >= 0 ? 'var(--green)' : 'var(--red)'};">$${(s.total_pnl || 0).toFixed(2)}</td>
+    </tr>`).join('');
+  }
+
+  function updateAnalytics() {
+    const stats = botStatus.stats || {};
+    const el = id => document.getElementById(id);
+    if (el('dailyTrades')) el('dailyTrades').textContent = stats.daily_trades || 0;
+    if (el('pdtUsed')) el('pdtUsed').textContent = `${stats.pdt_trades_5d || 0} / 3`;
+    if (el('pdtActive')) {
+      el('pdtActive').textContent = stats.pdt_active ? 'Yes (< $25k)' : 'No';
+      el('pdtActive').className = 'stat-value ' + (stats.pdt_active ? 'yellow' : 'green');
+    }
+    if (el('maxTrades')) el('maxTrades').textContent = stats.unlimited_trades ? 'Unlimited' : stats.max_daily_trades;
+    updateStrategyPerformance();
+  }
+
   // ===== BACKTESTER =====
   async function runBacktest() {
     const strategy = document.getElementById('btStrategy').value;
@@ -1620,21 +1976,33 @@
   setInterval(updateTime, 1000);
   updateTime();
 
-  setInterval(() => {
-    if (autoRefresh) {
-      fetchStatus();
-      fetchVIX();
-    }
-  }, refreshInterval);
+  // main refresh handled by fullRefresh interval
+
+  // ===== EXTENDED REFRESH =====
+  function fullRefresh() {
+    fetchStatus().then(() => updateAnalytics());
+    fetchVIX();
+    fetchMarketIndicators();
+    loadAlerts();
+  }
 
   // Initial load
   initTheme();
   initMobileMode();
   fetchStatus();
   fetchVIX();
+  fetchMarketIndicators();
+  loadStrategyToggles();
+  loadWatchlist();
+  loadAlerts();
+  loadPerformanceCharts();
   setConnectionStatus(navigator.onLine);
   window.addEventListener('online', () => setConnectionStatus(true));
   window.addEventListener('offline', () => setConnectionStatus(false));
+
+  setInterval(fullRefresh, 10000);
+  setInterval(loadStrategyToggles, 30000);
+  setInterval(loadWatchlist, 60000);
 </script>
 
 </body>

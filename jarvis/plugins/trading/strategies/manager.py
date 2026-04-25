@@ -57,16 +57,27 @@ class StrategyManager:
     _INTRADAY = {"day", "scalp"}
 
     def __init__(self):
-        self.strategies: list[Strategy] = []
+        self._all_strategies: dict[str, Strategy] = {}
+        self.enabled: set[str] = set()
         for cls in _ALL_STRATEGIES:
+            s = cls()
+            self._all_strategies[s.name] = s
             default_on = cls.name in self._INTRADAY
             if _flag(cls.name, default=default_on):
-                self.strategies.append(cls())
+                self.enabled.add(s.name)
                 logger.info(f"Strategy enabled: {cls.name}")
             else:
                 logger.info(f"Strategy disabled: {cls.name}")
         # Multiplier applied to intraday scores to further favour day trades
         self._day_bias = float(os.getenv("DAY_TRADING_BIAS", "1.3"))
+
+    @property
+    def strategies(self) -> dict[str, Strategy]:
+        return self._all_strategies
+
+    @property
+    def active_strategies(self) -> list[Strategy]:
+        return [s for name, s in self._all_strategies.items() if name in self.enabled]
 
     # ------------------------------------------------------------------
     # Introspection
@@ -74,17 +85,14 @@ class StrategyManager:
 
     @property
     def active_names(self) -> list[str]:
-        return [s.name for s in self.strategies]
+        return [s.name for s in self.active_strategies]
 
     @property
     def has_intraday(self) -> bool:
-        return any(s.intraday for s in self.strategies)
+        return any(s.intraday for s in self.active_strategies)
 
     def get(self, name: str) -> Strategy | None:
-        for s in self.strategies:
-            if s.name == name:
-                return s
-        return None
+        return self._all_strategies.get(name)
 
     # ------------------------------------------------------------------
     # Entry evaluation
@@ -112,7 +120,7 @@ class StrategyManager:
         bar_cache: dict[_BarKey, pd.DataFrame] = {}
         results: list[StrategySignal] = []
 
-        for strat in self.strategies:
+        for strat in self.active_strategies:
             key = _BarKey(strat.bar_interval, strat.bar_period)
             df = bar_cache.get(key)
             if df is None:
