@@ -1336,3 +1336,110 @@ async def scanner_stats(request: Request):
         "signals_generated": getattr(bot, "_last_signals", 0),
         "last_scan": getattr(bot, "_last_scan_iso", ""),
     }
+
+
+# ── Sector Exposure (current portfolio) ──────────────────────────────────────
+
+@router.get("/sector-exposure")
+async def sector_exposure(request: Request):
+    bot = _bot(request)
+    if not bot.is_running:
+        return {"sectors": {}}
+    try:
+        raw = bot._client.get_positions()
+        portfolio_val = bot._client.get_portfolio_value() or 1
+        by_sector: dict = {}
+        for sym, pos in raw.items():
+            qty = float(pos["quantity"])
+            price = bot._client.get_current_price(sym) or float(pos["average_buy_price"])
+            value = qty * price
+            try:
+                sector = yf.Ticker(sym).info.get("sector", "Other")
+            except Exception:
+                sector = "Other"
+            by_sector[sector] = round(by_sector.get(sector, 0) + value, 2)
+        return {"sectors": by_sector,
+                "portfolio_value": portfolio_val,
+                "by_pct": {k: round(v / portfolio_val * 100, 2) for k, v in by_sector.items()}}
+    except Exception as e:
+        return {"sectors": {}, "error": str(e)}
+
+
+# ── Daily P&L Line (last 30 days) ────────────────────────────────────────────
+
+@router.get("/daily-pnl")
+async def daily_pnl(request: Request):
+    trades = _bot(request)._trade_log.recent_trades(500)
+    by_day: dict = {}
+    for t in trades:
+        try:
+            d = t.get("exit_date", "")[:10]
+            by_day[d] = round(by_day.get(d, 0) + t.get("pnl", 0), 2)
+        except Exception:
+            pass
+    days = sorted(by_day.keys())[-30:]
+    cumulative = 0
+    out = []
+    for d in days:
+        cumulative = round(cumulative + by_day[d], 2)
+        out.append({"date": d, "daily_pnl": by_day[d], "cumulative": cumulative})
+    return {"daily": out}
+
+
+# ── Restart / Close by Strategy ──────────────────────────────────────────────
+
+@router.post("/close-by-strategy/{name}")
+async def close_by_strategy(name: str, request: Request):
+    bot = _bot(request)
+    if not bot.is_running:
+        return {"message": "Bot not running"}
+    raw = bot._client.get_positions()
+    closed = 0
+    for sym in list(raw.keys()):
+        meta = bot._positions.get(sym)
+        if meta and meta.get("strategy") == name:
+            pos = raw[sym]
+            price = bot._client.get_current_price(sym) or pos["average_buy_price"]
+            bot._execute_sell(sym, int(float(pos["quantity"])), price, f"manual: close all {name}")
+            closed += 1
+    _log_audit("close_by_strategy", f"{name}: closed {closed} positions")
+    return {"message": f"Closed {closed} {name} position(s)"}
+
+
+# ── Bot Uptime / Stats ───────────────────────────────────────────────────────
+
+@router.get("/bot-stats")
+async def bot_stats(request: Request):
+    bot = _bot(request)
+    uptime = time.time() - _server_start
+    return {
+        "uptime_seconds": int(uptime),
+        "is_running": bot.is_running,
+        "is_paper": bot.is_paper_trading,
+        "scans_per_hour": round(getattr(bot, "_scan_count", 0) / max(uptime / 3600, 0.1), 1),
+        "trades_today": bot._risk.get_stats().get("daily_trades", 0),
+    }
+
+
+# ── Settings Backup ──────────────────────────────────────────────────────────
+
+@router.get("/settings-backup")
+async def settings_backup(request: Request):
+    bot = _bot(request)
+    r = bot._risk
+    return {
+        "exported": datetime.now().isoformat(timespec="seconds"),
+        "risk_settings": {
+            "daily_max_loss_pct": r.DAILY_MAX_LOSS_PCT,
+            "stop_loss_pct": r.STOP_LOSS_PCT,
+            "trailing_stop_pct": r.TRAILING_STOP_PCT,
+            "max_position_pct": r.MAX_POSITION_PCT,
+            "max_daily_trades": r.MAX_DAILY_TRADES,
+            "concentration_limit": r.CONCENTRATION_LIMIT,
+        },
+        "enabled_strategies": list(bot.strategy_manager.enabled),
+        "watchlist": getattr(bot, "_last_scan_symbols", []),
+        "alerts": _price_alerts,
+        "pinned": list(_pinned),
+        "frozen_positions": list(_frozen_positions),
+    }

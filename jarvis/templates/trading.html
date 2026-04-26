@@ -802,6 +802,8 @@
     <button class="btn btn-stop" id="stopBtn" onclick="sendCmd('/api/trading/stop')">Stop</button>
     <button class="btn btn-freeze" id="freezeBtn" onclick="sendCmd('/api/trading/freeze')">Freeze</button>
     <button class="btn" id="unfreezeBtn" onclick="sendCmd('/api/trading/unfreeze')" style="display:none;">Unfreeze</button>
+    <button class="btn" onclick="closeByStrategy('day')" title="Close all Day positions">Close Day</button>
+    <button class="btn" onclick="closeByStrategy('scalp')" title="Close all Scalp positions">Close Scalp</button>
     <button class="btn btn-danger" id="closeAllBtn" onclick="if(confirm('Close ALL positions?')) sendCmd('/api/trading/close-all')">⚠ Close All</button>
   </div>
 
@@ -1081,6 +1083,17 @@
         <thead><tr><th>Strategy</th><th>Trades</th><th>Win %</th><th>Avg P&L</th><th>Total P&L</th></tr></thead>
         <tbody id="stratPerfBody"></tbody>
       </table>
+    </div>
+
+    <div class="charts-row">
+      <div class="chart-panel">
+        <div class="chart-title">Daily P&L (last 30 days)</div>
+        <canvas id="dailyPnlChart"></canvas>
+      </div>
+      <div class="chart-panel">
+        <div class="chart-title">Sector Exposure</div>
+        <canvas id="sectorExpChart"></canvas>
+      </div>
     </div>
 
     <div class="chart-panel" style="margin-bottom: 15px;">
@@ -1450,6 +1463,16 @@
       <div class="chart-title">Telegram Notifications</div>
       <div class="help-text" style="margin-bottom: 10px;">Status: <span id="telegramStatus">Checking...</span></div>
       <button class="btn" onclick="testTelegram()" style="width: 100%;">📱 Send Test Message</button>
+    </div>
+
+    <div class="chart-panel" style="margin-bottom: 15px;">
+      <div class="chart-title">Settings Backup & Restore</div>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px;">
+        <button class="btn" onclick="backupSettings()">📦 Download Backup</button>
+        <button class="btn" onclick="document.getElementById('restoreInput').click()">↑ Upload Backup</button>
+      </div>
+      <input type="file" id="restoreInput" style="display:none;" accept=".json" onchange="restoreSettings(event)">
+      <div class="help-text">Save all your risk settings, strategies, watchlist, alerts, pinned symbols.</div>
     </div>
   </div>
 
@@ -3054,6 +3077,102 @@
     addNotification('JSON exported');
   }
 
+  // ===== CLOSE BY STRATEGY =====
+  async function closeByStrategy(name) {
+    if (!confirm(`Close ALL ${name} positions?`)) return;
+    const res = await fetch(`/api/trading/close-by-strategy/${name}`, {method:'POST'});
+    const d = await res.json();
+    addNotification(d.message);
+    fetchStatus();
+  }
+
+  // ===== SECTOR EXPOSURE =====
+  async function fetchSectorExposure() {
+    try {
+      const res = await fetch('/api/trading/sector-exposure');
+      const d = await res.json();
+      const ctx = document.getElementById('sectorExpChart');
+      if (!ctx || !Object.keys(d.sectors || {}).length) return;
+      const labels = Object.keys(d.sectors);
+      const values = Object.values(d.sectors);
+      const colors = ['#22d3ee','#34d399','#fbbf24','#f87171','#60a5fa','#a78bfa','#f472b6','#fb923c','#10b981','#ef4444'];
+      if (window.sectorExpInst) window.sectorExpInst.destroy();
+      window.sectorExpInst = new Chart(ctx, {
+        type: 'doughnut',
+        data: {labels, datasets:[{data: values, backgroundColor: colors, borderColor: 'var(--panel)', borderWidth: 2}]},
+        options: {responsive:true, plugins:{legend:{position:'bottom', labels:{color:'#8892a6', font:{size:10}}}}}
+      });
+    } catch (e) {}
+  }
+
+  // ===== DAILY P&L CHART =====
+  async function fetchDailyPnL() {
+    try {
+      const res = await fetch('/api/trading/daily-pnl');
+      const d = await res.json();
+      const ctx = document.getElementById('dailyPnlChart');
+      if (!ctx || !d.daily.length) return;
+      if (window.dailyPnlInst) window.dailyPnlInst.destroy();
+      window.dailyPnlInst = new Chart(ctx, {
+        type: 'bar',
+        data: {labels: d.daily.map(x => x.date.slice(5)), datasets:[
+          {label:'Daily P&L', data: d.daily.map(x => x.daily_pnl),
+            backgroundColor: d.daily.map(x => x.daily_pnl >= 0 ? 'rgba(52,211,153,0.7)' : 'rgba(248,113,113,0.7)'),
+            yAxisID:'y'},
+          {label:'Cumulative', data: d.daily.map(x => x.cumulative),
+            type:'line', borderColor:'#22d3ee', backgroundColor:'transparent', borderWidth:2, pointRadius:0, yAxisID:'y1', tension:0.3}
+        ]},
+        options: {responsive:true, plugins:{legend:{labels:{color:'#8892a6'}}},
+          scales:{y:{position:'left',grid:{color:'rgba(255,255,255,0.05)'},ticks:{color:'#8892a6'}},
+                  y1:{position:'right',grid:{display:false},ticks:{color:'#22d3ee'}},
+                  x:{ticks:{color:'#8892a6',font:{size:9}}}}}
+      });
+    } catch (e) {}
+  }
+
+  // ===== SETTINGS BACKUP / RESTORE =====
+  async function backupSettings() {
+    const res = await fetch('/api/trading/settings-backup');
+    const d = await res.json();
+    const localPrefs = {
+      theme: localStorage.getItem('theme'),
+      mobileMode: localStorage.getItem('mobileMode'),
+      neutral: localStorage.getItem('neutral'),
+      compact: localStorage.getItem('compact'),
+      colorBlind: localStorage.getItem('colorBlind'),
+      highContrast: localStorage.getItem('highContrast'),
+      autoTheme: localStorage.getItem('autoTheme'),
+      voice: localStorage.getItem('voice'),
+      fontSize: localStorage.getItem('fontSize'),
+    };
+    const blob = new Blob([JSON.stringify({server: d, local: localPrefs}, null, 2)], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'jarvis-trading-backup-' + new Date().toISOString().slice(0,10) + '.json';
+    a.click();
+    addNotification('Backup downloaded');
+  }
+
+  function restoreSettings(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const r = new FileReader();
+    r.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target.result);
+        if (data.local) {
+          Object.entries(data.local).forEach(([k,v]) => v && localStorage.setItem(k, v));
+        }
+        addNotification('Settings restored. Reloading...');
+        setTimeout(() => location.reload(), 1500);
+      } catch (err) {
+        addNotification('Invalid backup file', 'error');
+      }
+    };
+    r.readAsText(file);
+  }
+
   // ===== STRATEGY PRESETS =====
   async function applyPreset(preset) {
     const res = await fetch('/api/trading/preset', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({preset})});
@@ -3510,6 +3629,8 @@
     fetchEarningsWarning();
     fetchDailyStreak();
     fetchScannerStats();
+    fetchSectorExposure();
+    fetchDailyPnL();
     checkTimeAlerts();
     applyAutoTheme();
   }
