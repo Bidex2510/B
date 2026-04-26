@@ -1973,3 +1973,78 @@ async def settings_backup(request: Request):
         "pinned": list(_pinned),
         "frozen_positions": list(_frozen_positions),
     }
+
+
+# ── Dynamic stock discovery ───────────────────────────────────────────────────
+
+@router.get("/discover")
+async def discover_stocks(request: Request, force: bool = False):
+    """Return today's dynamically discovered movers from yfinance screener."""
+    from jarvis.plugins.trading.scanner import discover_movers, get_discovered_movers
+    if force:
+        import threading
+        # Trigger a background refresh; return current cache immediately
+        threading.Thread(target=discover_movers, kwargs={"force": True}, daemon=True).start()
+    cached = get_discovered_movers()
+    quotes = []
+    for sym in cached[:50]:
+        try:
+            info = yf.Ticker(sym).fast_info
+            price = getattr(info, "last_price", None)
+            change = getattr(info, "last_price", 0) - getattr(info, "previous_close", 0)
+            pct = (change / getattr(info, "previous_close", 1)) * 100 if getattr(info, "previous_close", 0) else 0
+            quotes.append({
+                "symbol": sym,
+                "price": round(float(price), 2) if price else None,
+                "change_pct": round(float(pct), 2),
+                "volume": getattr(info, "three_month_average_volume", None),
+            })
+        except Exception:
+            quotes.append({"symbol": sym, "price": None, "change_pct": 0, "volume": None})
+    return {
+        "discovered": quotes,
+        "count": len(cached),
+        "cached_at": _mover_cache_time_str(),
+    }
+
+
+def _mover_cache_time_str() -> str:
+    from jarvis.plugins.trading.scanner import _mover_fetched_at
+    import time as _time
+    if not _mover_fetched_at:
+        return "never"
+    secs = int(_time.time() - _mover_fetched_at)
+    if secs < 60:
+        return f"{secs}s ago"
+    return f"{secs // 60}m ago"
+
+
+@router.get("/universe/stats")
+async def universe_stats(request: Request):
+    """Return statistics about the current trading universe."""
+    from jarvis.plugins.trading.scanner import (
+        get_universe, get_sp500_symbols, get_discovered_movers,
+        _DEFAULT_STOCKS, _DEFAULT_ETFS, _EXTENDED_STOCKS,
+    )
+    universe = get_universe()
+    sp500 = get_sp500_symbols()
+    movers = get_discovered_movers()
+    return {
+        "total_universe": len(universe),
+        "core_stocks": len(_DEFAULT_STOCKS),
+        "core_etfs": len(_DEFAULT_ETFS),
+        "extended_stocks": len(_EXTENDED_STOCKS),
+        "sp500_loaded": len(sp500),
+        "dynamic_movers": len(movers),
+        "sample": universe[:20],
+        "movers_sample": movers[:10],
+    }
+
+
+@router.post("/discover/refresh")
+async def refresh_discover(request: Request):
+    """Force a fresh mover discovery scan (runs in background)."""
+    import threading
+    from jarvis.plugins.trading.scanner import discover_movers
+    threading.Thread(target=discover_movers, kwargs={"force": True}, daemon=True).start()
+    return {"status": "refresh started", "message": "Discovery scan running in background. Check /discover in ~10s."}

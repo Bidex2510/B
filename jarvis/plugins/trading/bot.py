@@ -28,7 +28,7 @@ from jarvis.plugins.trading.notifier import Notifier
 from jarvis.plugins.trading.position_store import PositionStore
 from jarvis.plugins.trading.risk_manager import RiskManager
 from jarvis.plugins.trading.robinhood_client import RobinhoodClient
-from jarvis.plugins.trading.scanner import StockScanner
+from jarvis.plugins.trading.scanner import StockScanner, discover_movers
 from jarvis.plugins.trading.strategies.manager import StrategyManager
 from jarvis.plugins.trading.trade_log import TradeLog
 
@@ -64,6 +64,9 @@ class TradingBot:
         self._last_scan_symbols: list[str] = []
         self._session_start_iso: str = ""
         self._daily_goal: float = float(os.getenv("DAILY_GOAL", "0"))
+        self._cycle_count: int = 0
+        # Kick off an initial mover discovery in the background so first cycle has data
+        threading.Thread(target=discover_movers, kwargs={"force": True}, daemon=True).start()
 
         default_interval = 60 if self._strategies.has_intraday else 300
         self._scan_interval = int(os.getenv("SCAN_INTERVAL_SECONDS", default_interval))
@@ -222,6 +225,7 @@ class TradingBot:
     # ------------------------------------------------------------------
 
     def _trading_cycle(self) -> None:
+        self._cycle_count += 1
         portfolio_value = self._client.get_portfolio_value()
         self._trade_log.record_portfolio_value(portfolio_value)
 
@@ -230,6 +234,10 @@ class TradingBot:
                 self._notifier.circuit_breaker_alert()
             logger.warning("Circuit breaker active – skipping this cycle.")
             return
+
+        # Refresh dynamic movers every 5 cycles (~5 min at default interval)
+        if self._cycle_count % 5 == 0:
+            threading.Thread(target=discover_movers, daemon=True).start()
 
         self._manage_open_positions()
         self._scan_and_buy(portfolio_value)
@@ -277,6 +285,8 @@ class TradingBot:
     # ------------------------------------------------------------------
 
     def _scan_and_buy(self, portfolio_value: float) -> None:
+        # Full universe (mega-cap + mid/small-cap + S&P 500 + live movers)
+        # StockScanner.get_watchlist() already shuffles so each cycle sees different stocks
         watchlist = self._scanner.get_watchlist()
         held = set(self._client.get_positions().keys())
         candidates = [s for s in watchlist if s not in held]

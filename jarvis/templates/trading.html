@@ -1664,6 +1664,49 @@
       <div id="marketNewsList" style="margin-top: 10px;"></div>
     </div>
 
+    <!-- ── Stock Discovery Panel ─────────────────────────────────── -->
+    <div class="chart-panel" style="margin-bottom: 15px;">
+      <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+        <div class="chart-title" style="margin: 0;">🔍 Stock Discovery — Today's Movers &amp; Gainers</div>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <span id="discoverCacheLabel" style="font-size: 11px; color: var(--muted);">Loading…</span>
+          <button class="btn" style="font-size: 11px; padding: 5px 12px;" onclick="refreshDiscover()">↺ Refresh</button>
+        </div>
+      </div>
+
+      <!-- Universe stats bar -->
+      <div id="universeStatsBar" style="display: flex; gap: 12px; flex-wrap: wrap; margin: 12px 0 8px; font-size: 11px; color: var(--muted);"></div>
+
+      <!-- Filter chips -->
+      <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px;">
+        <button class="filter-chip active" id="discFilterAll" onclick="filterDiscover('all')">All</button>
+        <button class="filter-chip" id="discFilterGainers" onclick="filterDiscover('gainers')">📈 Gainers</button>
+        <button class="filter-chip" id="discFilterLosers" onclick="filterDiscover('losers')">📉 Losers</button>
+        <button class="filter-chip" id="discFilterActive" onclick="filterDiscover('active')">🔥 Most Active</button>
+        <input type="text" id="discoverSearch" placeholder="Filter symbol…"
+               style="background: var(--panel2); border: 1px solid var(--line); color: var(--text); border-radius: 6px; padding: 4px 8px; font-size: 11px; width: 120px;"
+               oninput="renderDiscoveredTable()">
+      </div>
+
+      <table class="positions-table" style="font-size: 12px;">
+        <thead><tr><th>Symbol</th><th>Price</th><th>Change %</th><th>Volume</th><th>Action</th></tr></thead>
+        <tbody id="discoveredStocks"></tbody>
+      </table>
+      <div id="discoverEmpty" style="display:none; text-align:center; padding: 20px; color: var(--muted); font-size: 12px;">
+        No movers discovered yet. Click ↺ Refresh to scan for today's top stocks.
+      </div>
+    </div>
+
+    <!-- ── Universe Stats Card ───────────────────────────────────── -->
+    <div class="chart-panel" style="margin-bottom: 15px;">
+      <div class="chart-title">🌐 Trading Universe</div>
+      <div id="universeDetails" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-top: 10px;"></div>
+      <p style="font-size: 11px; color: var(--muted); margin-top: 10px;">
+        The bot randomly rotates through the full universe each scan cycle, ensuring every stock gets evaluated over time.
+        Enable additional sources with env vars: <code>USE_SP500=true</code> (default), <code>DYNAMIC_SCAN=true</code> (default).
+      </p>
+    </div>
+
     <div class="chart-panel" style="margin-bottom: 15px;">
       <div class="chart-title">Watchlist Quotes (sorted by % change)</div>
       <table class="positions-table" style="font-size: 12px;">
@@ -3570,6 +3613,124 @@
     document.getElementById('welcomeStep' + n).classList.add('active');
   }
 
+  // ===== STOCK DISCOVERY =====
+  let _discoveredData = [];
+  let _discoverFilter = 'all';
+
+  async function loadDiscovery() {
+    try {
+      const [discRes, uniRes] = await Promise.all([
+        fetch('/api/trading/discover'),
+        fetch('/api/trading/universe/stats'),
+      ]);
+      const disc = await discRes.json();
+      const uni = await uniRes.json();
+
+      _discoveredData = disc.discovered || [];
+      const label = document.getElementById('discoverCacheLabel');
+      if (label) label.textContent = `Updated ${disc.cached_at || '—'} • ${_discoveredData.length} stocks found`;
+
+      renderDiscoveredTable();
+      renderUniverseStats(uni);
+    } catch(e) {}
+  }
+
+  function filterDiscover(mode) {
+    _discoverFilter = mode;
+    document.querySelectorAll('.filter-chip[id^="discFilter"]').forEach(b => b.classList.remove('active'));
+    const btn = document.getElementById('discFilter' + mode.charAt(0).toUpperCase() + mode.slice(1));
+    if (btn) btn.classList.add('active');
+    renderDiscoveredTable();
+  }
+
+  function renderDiscoveredTable() {
+    const body = document.getElementById('discoveredStocks');
+    const empty = document.getElementById('discoverEmpty');
+    if (!body) return;
+
+    const search = (document.getElementById('discoverSearch')?.value || '').toUpperCase();
+    let rows = _discoveredData.filter(q => !search || q.symbol.includes(search));
+
+    if (_discoverFilter === 'gainers') rows = rows.filter(q => q.change_pct > 0);
+    else if (_discoverFilter === 'losers') rows = rows.filter(q => q.change_pct < 0);
+    else if (_discoverFilter === 'active') rows = rows.sort((a,b) => (b.volume||0) - (a.volume||0));
+
+    if (_discoverFilter !== 'active') rows.sort((a,b) => Math.abs(b.change_pct) - Math.abs(a.change_pct));
+
+    if (!rows.length) {
+      body.innerHTML = '';
+      if (empty) empty.style.display = '';
+      return;
+    }
+    if (empty) empty.style.display = 'none';
+
+    body.innerHTML = rows.map(q => {
+      const priceTxt = q.price ? `$${q.price.toFixed(2)}` : '—';
+      const chgColor = q.change_pct >= 0 ? 'var(--green)' : 'var(--red)';
+      const chgArrow = q.change_pct >= 0 ? '▲' : '▼';
+      const volTxt = q.volume ? Number(q.volume).toLocaleString() : '—';
+      return `<tr>
+        <td><span style="color:var(--accent); cursor:pointer; font-weight:600;" onclick="openChart('${q.symbol}')">${q.symbol}</span></td>
+        <td>${priceTxt}</td>
+        <td style="color:${chgColor}; font-weight:600;">${chgArrow} ${Math.abs(q.change_pct).toFixed(2)}%</td>
+        <td style="color:var(--muted);">${volTxt}</td>
+        <td style="display:flex; gap:5px;">
+          <button class="control-btn" onclick="openChart('${q.symbol}')" title="Chart">📊</button>
+          <button class="control-btn" onclick="addPriceAlertFor('${q.symbol}', ${q.price||0})" title="Set Alert">🔔</button>
+          <button class="control-btn" onclick="addToWatchlist('${q.symbol}')" title="Add to Watchlist">➕</button>
+        </td>
+      </tr>`;
+    }).join('');
+  }
+
+  function renderUniverseStats(uni) {
+    const bar = document.getElementById('universeStatsBar');
+    const det = document.getElementById('universeDetails');
+    if (!bar && !det) return;
+
+    const items = [
+      { label: 'Total Universe', value: uni.total_universe, icon: '🌐' },
+      { label: 'Core Stocks', value: uni.core_stocks, icon: '💎' },
+      { label: 'Core ETFs', value: uni.core_etfs, icon: '📦' },
+      { label: 'Extended Stocks', value: uni.extended_stocks, icon: '🚀' },
+      { label: 'S&P 500', value: uni.sp500_loaded, icon: '📈' },
+      { label: 'Live Movers', value: uni.dynamic_movers, icon: '🔥' },
+    ];
+
+    if (bar) bar.innerHTML = items.map(i =>
+      `<span>${i.icon} <b style="color:var(--text);">${i.value}</b> ${i.label}</span>`
+    ).join(' &nbsp;•&nbsp; ');
+
+    if (det) det.innerHTML = items.map(i => `
+      <div style="background:var(--panel2); border-radius:8px; padding:12px; text-align:center;">
+        <div style="font-size:22px;">${i.icon}</div>
+        <div style="font-size:20px; font-weight:700; color:var(--accent); margin:4px 0;">${i.value}</div>
+        <div style="font-size:11px; color:var(--muted);">${i.label}</div>
+      </div>
+    `).join('');
+  }
+
+  async function refreshDiscover() {
+    const label = document.getElementById('discoverCacheLabel');
+    if (label) label.textContent = 'Scanning… (may take 10-15s)';
+    try {
+      await fetch('/api/trading/discover/refresh', {method:'POST'});
+      setTimeout(loadDiscovery, 12000);  // Give it 12s to finish
+    } catch(e) {}
+  }
+
+  async function addToWatchlist(symbol) {
+    try {
+      const res = await fetch('/api/trading/watchlist/add', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({symbol}),
+      });
+      const d = await res.json();
+      showToast(d.message || `${symbol} added to watchlist`);
+    } catch(e) { showToast(`Error adding ${symbol}`); }
+  }
+
   // ===== WATCHLIST QUOTES =====
   async function fetchWatchlistQuotes() {
     try {
@@ -4287,6 +4448,7 @@
     fetchDaysGrade();
     fetchStrategyComparison();
     fetchWatchlistQuotes();
+    loadDiscovery();
     fetchIndexOverview();
     fetchMood();
     fetchSignalStrength();
@@ -4357,6 +4519,7 @@
   fetchMonthly();
   fetchMarketNews();
   fetchWatchlistQuotes();
+  loadDiscovery();
   fetchRiskScore();
   fetchDaysGrade();
   fetchStrategyComparison();
@@ -4367,6 +4530,7 @@
   fetchWeekly();
   setInterval(fetchMarketNews, 600000);
   setInterval(fetchWatchlistQuotes, 60000);
+  setInterval(loadDiscovery, 300000);  // Refresh discovery every 5 min
   setInterval(fetchIndexOverview, 60000);
   setInterval(fetchMood, 120000);
   setInterval(fetchSignalStrength, 60000);
