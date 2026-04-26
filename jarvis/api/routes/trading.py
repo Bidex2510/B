@@ -1425,6 +1425,61 @@ async def bot_stats(request: Request):
 
 # ── Personal Records / Achievements ──────────────────────────────────────────
 
+# ── Custom Stop per Position ─────────────────────────────────────────────────
+
+class CustomStopRequest(BaseModel):
+    stop_price: float
+
+
+@router.post("/custom-stop/{symbol}")
+async def custom_stop(symbol: str, req: CustomStopRequest, request: Request):
+    bot = _bot(request)
+    sym = symbol.upper()
+    if not hasattr(bot, "_custom_stops"):
+        bot._custom_stops = {}
+    bot._custom_stops[sym] = req.stop_price
+    _log_audit("custom_stop", f"{sym} → ${req.stop_price:.2f}")
+    return {"message": f"Custom stop for {sym} set to ${req.stop_price:.2f}"}
+
+
+@router.delete("/custom-stop/{symbol}")
+async def remove_custom_stop(symbol: str, request: Request):
+    bot = _bot(request)
+    sym = symbol.upper()
+    if hasattr(bot, "_custom_stops"):
+        bot._custom_stops.pop(sym, None)
+    return {"message": f"Custom stop removed for {sym}"}
+
+
+@router.get("/custom-stops")
+async def get_custom_stops(request: Request):
+    bot = _bot(request)
+    return {"stops": getattr(bot, "_custom_stops", {})}
+
+
+# ── Win Rate by Hour of Day ──────────────────────────────────────────────────
+
+@router.get("/wins-by-hour")
+async def wins_by_hour(request: Request):
+    trades = _bot(request)._trade_log.recent_trades(500)
+    by_hour: dict = {}
+    for t in trades:
+        try:
+            h = datetime.fromisoformat(t.get("exit_date", "")).hour
+            by_hour.setdefault(h, {"wins": 0, "total": 0})
+            by_hour[h]["total"] += 1
+            if t.get("pnl", 0) > 0:
+                by_hour[h]["wins"] += 1
+        except Exception:
+            pass
+    out = []
+    for h in range(24):
+        d = by_hour.get(h, {"wins": 0, "total": 0})
+        wr = round(d["wins"] / d["total"] * 100, 1) if d["total"] else 0
+        out.append({"hour": h, "win_rate": wr, "trades": d["total"]})
+    return {"by_hour": out}
+
+
 # ── Signal History (recent strategy signals across all symbols) ──────────────
 
 _signal_history: list[dict] = []

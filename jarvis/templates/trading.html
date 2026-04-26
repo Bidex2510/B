@@ -683,6 +683,25 @@
     .welcome-step { display: none; }
     .welcome-step.active { display: block; }
 
+    /* Print friendly */
+    @media print {
+      .top-bar, .ticker-tape, .market-banner, .top-progress, .tabs, .status-bar,
+      .sidebar-toggle, #activitySidebar, .fab, .fab-menu, .position-controls,
+      .control-btn, .modal { display: none !important; }
+      body { background: white !important; color: black !important; }
+      .stat, .chart-panel { border: 1px solid #ccc !important; background: white !important; color: black !important; break-inside: avoid; }
+      .tab-content { display: block !important; }
+    }
+
+    /* Currency toggle - hide $$ in percent-only mode */
+    body.percent-only .stat-value:not([data-keep]) { font-size: 0; }
+    body.percent-only .stat-value::after { content: '%'; font-size: 18px; }
+
+    /* Filter chips */
+    .filter-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+    .filter-chip { padding: 4px 12px; border-radius: 20px; background: var(--panel2); border: 1px solid var(--line); cursor: pointer; font-size: 12px; }
+    .filter-chip.active { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+
     /* Mobile Responsive */
     @media (max-width: 768px) {
       .top-bar {
@@ -1008,6 +1027,14 @@
 
   <!-- ===== POSITIONS TAB ===== -->
   <div id="positions" class="tab-content">
+    <div class="filter-chips">
+      <span class="filter-chip active" onclick="quickFilter(this, 'all')">All</span>
+      <span class="filter-chip" onclick="quickFilter(this, 'winning')">📈 Winning</span>
+      <span class="filter-chip" onclick="quickFilter(this, 'losing')">📉 Losing</span>
+      <span class="filter-chip" onclick="quickFilter(this, 'day')">📅 Day</span>
+      <span class="filter-chip" onclick="quickFilter(this, 'scalp')">⚡ Scalp</span>
+      <span class="filter-chip" onclick="window.print()" style="margin-left: auto;">🖨 Print</span>
+    </div>
     <div style="margin-bottom: 12px; display: flex; gap: 8px; align-items: center;">
       <input type="text" id="posSearch" class="goal-input" placeholder="🔍 Filter by symbol..." style="padding: 8px; flex: 1; max-width: 300px;" oninput="filterPositions()">
       <select id="posFilter" class="goal-input" style="padding: 8px; max-width: 160px;" onchange="filterPositions()">
@@ -2157,12 +2184,13 @@
         <td>${icon} ${strategy}</td>
         <td>
           <div class="position-controls">
-            <button class="control-btn" onclick="scaleIn('${p.symbol}')">+</button>
+            <button class="control-btn" onclick="scaleIn('${p.symbol}')" title="Scale in">+</button>
             <button class="control-btn" onclick="scaleOut('${p.symbol}', 0.25)">25%</button>
             <button class="control-btn" onclick="scaleOut('${p.symbol}', 0.5)">50%</button>
             <button class="control-btn" onclick="scaleOut('${p.symbol}', 0.75)">75%</button>
-            <button class="control-btn" onclick="breakEven('${p.symbol}')">BE</button>
-            <button class="control-btn" onclick="closePos('${p.symbol}')">✕</button>
+            <button class="control-btn" onclick="breakEven('${p.symbol}')" title="Break-even stop">BE</button>
+            <button class="control-btn" onclick="setCustomStop('${p.symbol}')" title="Custom stop">🛑</button>
+            <button class="control-btn" onclick="closePos('${p.symbol}')" title="Close position">✕</button>
           </div>
         </td>
       </tr>`;
@@ -3303,6 +3331,44 @@
     addNotification('JSON exported');
   }
 
+  // ===== QUICK FILTER CHIPS =====
+  function quickFilter(el, val) {
+    document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
+    el.classList.add('active');
+    document.getElementById('posFilter').value = val;
+    filterPositions();
+  }
+
+  // ===== CUSTOM STOPS =====
+  async function setCustomStop(symbol) {
+    const price = prompt(`Set custom stop price for ${symbol}:`, '');
+    if (!price) return;
+    const p = parseFloat(price);
+    if (isNaN(p) || p <= 0) { addNotification('Invalid price', 'error'); return; }
+    const res = await fetch('/api/trading/custom-stop/' + symbol, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({stop_price: p})});
+    const d = await res.json();
+    addNotification(d.message);
+  }
+
+  // ===== MILESTONE NOTIFICATIONS (every 25%) =====
+  let _lastMilestone = 0;
+  function checkMilestones() {
+    const stats = botStatus.trade_stats || {};
+    const goal = botStatus.goal || 100;
+    const pnl = stats.total_pnl || 0;
+    if (goal <= 0) return;
+    const pct = pnl / goal * 100;
+    const milestones = [25, 50, 75];
+    for (const m of milestones) {
+      if (pct >= m && _lastMilestone < m) {
+        _lastMilestone = m;
+        addNotification(`🎯 ${m}% to goal! ($${pnl.toFixed(2)} / $${goal.toFixed(2)})`);
+        pushNotify(`${m}% to goal`, `$${pnl.toFixed(2)} of $${goal.toFixed(2)}`);
+      }
+    }
+    if (pct < 0) _lastMilestone = 0;  // reset if went red
+  }
+
   // ===== POSITION AGING =====
   async function fetchPositionAge() {
     try {
@@ -4227,6 +4293,7 @@
     fetchYTD();
     fetchWeekly();
     fetchPositionAge();
+    checkMilestones();
     checkTimeAlerts();
     applyAutoTheme();
   }
