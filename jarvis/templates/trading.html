@@ -1134,6 +1134,14 @@
       <div id="dailyNarrative" style="font-size: 14px; padding: 12px; line-height: 1.6;"></div>
     </div>
 
+    <div class="chart-panel" style="margin-bottom: 15px;">
+      <div class="chart-title">⏰ Position Aging</div>
+      <table class="positions-table" style="font-size: 12px;">
+        <thead><tr><th>Symbol</th><th>Strategy</th><th>Age</th><th>Status</th></tr></thead>
+        <tbody id="positionAge"></tbody>
+      </table>
+    </div>
+
     <div class="charts-row">
       <div class="chart-panel">
         <div class="chart-title">🎯 Live Signal Strength (top scores right now)</div>
@@ -1590,6 +1598,25 @@
       <div class="chart-title">Telegram Notifications</div>
       <div class="help-text" style="margin-bottom: 10px;">Status: <span id="telegramStatus">Checking...</span></div>
       <button class="btn" onclick="testTelegram()" style="width: 100%;">📱 Send Test Message</button>
+    </div>
+
+    <div class="chart-panel" style="margin-bottom: 15px;">
+      <div class="chart-title">UI Preferences</div>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px;">
+        <div>
+          <label style="font-size: 11px; color: var(--muted);">Refresh Interval (seconds)</label>
+          <input type="range" id="refreshSlider" min="5" max="60" step="5" value="10" oninput="setRefreshInterval(this.value)" style="width: 100%;">
+          <div style="font-size: 11px; color: var(--muted);"><span id="refreshVal">10</span>s</div>
+        </div>
+        <div>
+          <label style="font-size: 11px; color: var(--muted);">Auto-refresh</label>
+          <button class="btn" onclick="toggleAutoRefresh()" id="autoRefreshBtn" style="width: 100%; margin-top: 4px;">⏸ Pause</button>
+        </div>
+      </div>
+      <div style="margin-top: 12px;">
+        <label style="font-size: 11px; color: var(--muted);">Visible Position Columns</label>
+        <div id="columnVis" style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px;"></div>
+      </div>
     </div>
 
     <div class="chart-panel" style="margin-bottom: 15px;">
@@ -3276,6 +3303,73 @@
     addNotification('JSON exported');
   }
 
+  // ===== POSITION AGING =====
+  async function fetchPositionAge() {
+    try {
+      const res = await fetch('/api/trading/position-age');
+      const d = await res.json();
+      const body = document.getElementById('positionAge');
+      if (!body) return;
+      body.innerHTML = d.positions.map(p => {
+        const fmt = m => m < 60 ? m.toFixed(0) + 'm' : (m/60).toFixed(1) + 'h';
+        return `<tr>
+          <td><span style="color:var(--accent); cursor:pointer;" onclick="openChart('${p.symbol}')">${p.symbol}</span></td>
+          <td style="text-transform:capitalize;">${p.strategy}</td>
+          <td>${fmt(p.age_minutes)}</td>
+          <td style="color:${p.warning?'var(--yellow)':'var(--green)'}; font-size:11px;">${p.warning || '✓ OK'}</td>
+        </tr>`;
+      }).join('') || '<tr><td colspan="4" style="text-align:center; color:var(--muted); padding:12px;">No open positions</td></tr>';
+    } catch (e) {}
+  }
+
+  // ===== REFRESH INTERVAL =====
+  let _refreshInterval = parseInt(localStorage.getItem('refreshInterval') || 10);
+  let _refreshTimer = null;
+  let _autoRefreshOn = true;
+
+  function setRefreshInterval(secs) {
+    _refreshInterval = parseInt(secs);
+    document.getElementById('refreshVal').textContent = secs;
+    localStorage.setItem('refreshInterval', secs);
+    restartRefreshTimer();
+  }
+
+  function restartRefreshTimer() {
+    if (_refreshTimer) clearInterval(_refreshTimer);
+    if (_autoRefreshOn) _refreshTimer = setInterval(fullRefresh, _refreshInterval * 1000);
+  }
+
+  function toggleAutoRefresh() {
+    _autoRefreshOn = !_autoRefreshOn;
+    document.getElementById('autoRefreshBtn').textContent = _autoRefreshOn ? '⏸ Pause' : '▶ Resume';
+    document.getElementById('autoRefreshBtn').style.background = _autoRefreshOn ? '' : 'var(--yellow)';
+    document.getElementById('autoRefreshBtn').style.color = _autoRefreshOn ? '' : 'var(--bg)';
+    restartRefreshTimer();
+    addNotification(_autoRefreshOn ? 'Auto-refresh on' : 'Auto-refresh paused');
+  }
+
+  // ===== COLUMN VISIBILITY =====
+  const _columns = ['Qty', 'Avg Cost', 'Price', 'P&L %', 'P&L $', 'Stop', 'Target', 'Age', 'Strategy', 'Controls'];
+  function initColumnVis() {
+    const el = document.getElementById('columnVis');
+    if (!el) return;
+    const hidden = JSON.parse(localStorage.getItem('hiddenCols') || '[]');
+    el.innerHTML = _columns.map((c, i) => `<label style="font-size:11px; cursor:pointer;">
+      <input type="checkbox" ${hidden.includes(i) ? '' : 'checked'} onchange="toggleColumn(${i+1}, this.checked)"> ${c}
+    </label>`).join('');
+    hidden.forEach(i => toggleColumn(i+1, false));
+  }
+  function toggleColumn(idx, show) {
+    document.querySelectorAll(`#positionsBody td:nth-child(${idx}), table.positions-table th:nth-child(${idx})`).forEach(c => {
+      c.style.display = show ? '' : 'none';
+    });
+    const hidden = JSON.parse(localStorage.getItem('hiddenCols') || '[]');
+    const i = idx - 1;
+    if (!show && !hidden.includes(i)) hidden.push(i);
+    if (show) hidden.splice(hidden.indexOf(i), 1);
+    localStorage.setItem('hiddenCols', JSON.stringify(hidden));
+  }
+
   // ===== SIGNAL STRENGTH =====
   async function fetchSignalStrength() {
     try {
@@ -4132,6 +4226,7 @@
     fetchSignalStrength();
     fetchYTD();
     fetchWeekly();
+    fetchPositionAge();
     checkTimeAlerts();
     applyAutoTheme();
   }
@@ -4214,7 +4309,11 @@
   window.addEventListener('online', () => setConnectionStatus(true));
   window.addEventListener('offline', () => setConnectionStatus(false));
 
-  setInterval(fullRefresh, 10000);
+  // Initialize configurable refresh
+  document.getElementById('refreshSlider').value = _refreshInterval;
+  document.getElementById('refreshVal').textContent = _refreshInterval;
+  initColumnVis();
+  restartRefreshTimer();
   setInterval(loadStrategyToggles, 30000);
   setInterval(loadWatchlist, 60000);
   setInterval(fetchMonteCarlo, 120000);

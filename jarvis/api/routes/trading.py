@@ -1425,6 +1425,49 @@ async def bot_stats(request: Request):
 
 # ── Personal Records / Achievements ──────────────────────────────────────────
 
+# ── Signal History (recent strategy signals across all symbols) ──────────────
+
+_signal_history: list[dict] = []
+
+
+@router.get("/signal-history")
+async def signal_history():
+    return {"signals": _signal_history[-50:][::-1]}
+
+
+@router.post("/signal/log")
+async def log_signal(payload: dict):
+    _signal_history.append({**payload, "ts": datetime.now().isoformat(timespec="seconds")})
+    if len(_signal_history) > 200:
+        _signal_history.pop(0)
+    return {"ok": True}
+
+
+# ── Position Time Decay (oldest positions first) ─────────────────────────────
+
+@router.get("/position-age")
+async def position_age(request: Request):
+    bot = _bot(request)
+    if not bot.is_running:
+        return {"positions": []}
+    raw = bot._client.get_positions()
+    out = []
+    for sym in raw.keys():
+        meta = bot._positions.get(sym)
+        age_min = bot._positions.age_minutes(sym)
+        strat = meta["strategy"] if meta else "—"
+        # warning if intraday position is too old
+        warning = ""
+        if strat == "scalp" and age_min > 25:
+            warning = "⚠️ Scalp held too long (>25min)"
+        elif strat == "day" and age_min > 240:
+            warning = "⚠️ Day trade held too long (>4hr)"
+        out.append({"symbol": sym, "strategy": strat, "age_minutes": round(age_min, 1),
+                    "warning": warning})
+    out.sort(key=lambda x: x["age_minutes"], reverse=True)
+    return {"positions": out}
+
+
 # ── Live Signal Strength Across Watchlist ────────────────────────────────────
 
 @router.get("/signal-strength")
