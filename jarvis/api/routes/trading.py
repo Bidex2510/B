@@ -1425,6 +1425,144 @@ async def bot_stats(request: Request):
 
 # ── Personal Records / Achievements ──────────────────────────────────────────
 
+# ── Watchlist Live Quotes ────────────────────────────────────────────────────
+
+@router.get("/watchlist-quotes")
+async def watchlist_quotes():
+    from jarvis.plugins.trading.scanner import get_watchlist
+    syms = get_watchlist()[:30]
+    quotes = []
+    for s in syms:
+        try:
+            df = yf.Ticker(s).history(period="2d")
+            if len(df) >= 2:
+                prev = float(df["Close"].iloc[-2])
+                curr = float(df["Close"].iloc[-1])
+                vol = int(df["Volume"].iloc[-1])
+                chg = (curr - prev) / prev * 100
+                quotes.append({"symbol": s, "price": round(curr, 2),
+                                "change_pct": round(chg, 2), "volume": vol})
+        except Exception:
+            pass
+    quotes.sort(key=lambda x: x["change_pct"], reverse=True)
+    return {"quotes": quotes}
+
+
+# ── General Market News (NewsAPI) ────────────────────────────────────────────
+
+@router.get("/market-news")
+async def market_news():
+    api_key = os.getenv("NEWS_API_KEY", "")
+    if not api_key:
+        return {"articles": []}
+    import httpx
+    try:
+        res = httpx.get(
+            "https://newsapi.org/v2/top-headlines",
+            params={"category": "business", "country": "us", "pageSize": 8, "apiKey": api_key},
+            timeout=8,
+        )
+        d = res.json()
+        return {"articles": [{"title": a["title"], "source": a["source"]["name"],
+                              "url": a["url"], "published": a["publishedAt"][:10],
+                              "image": a.get("urlToImage")}
+                            for a in d.get("articles", [])[:8]]}
+    except Exception as e:
+        return {"articles": [], "error": str(e)}
+
+
+# ── Risk Score (overall portfolio safety) ────────────────────────────────────
+
+@router.get("/risk-score")
+async def risk_score(request: Request):
+    bot = _bot(request)
+    if not bot.is_running:
+        return {"score": 0, "grade": "—", "factors": []}
+    try:
+        positions = bot._client.get_positions()
+        portfolio_val = bot._client.get_portfolio_value() or 1
+    except Exception:
+        return {"score": 0, "grade": "—"}
+    score = 100
+    factors = []
+
+    # Concentration risk
+    for sym, pos in positions.items():
+        val = float(pos.get("quantity", 0)) * float(pos.get("average_buy_price", 0))
+        pct = val / portfolio_val * 100
+        if pct > 25:
+            score -= 20
+            factors.append(f"⚠ {sym} is {pct:.0f}% of portfolio (high concentration)")
+        elif pct > 15:
+            score -= 10
+
+    # Number of positions
+    if len(positions) > 10:
+        score -= 10
+        factors.append("Too many positions (>10) — hard to monitor")
+    elif len(positions) == 0:
+        score = 100  # cash = safe
+
+    # Frozen state
+    if bot._risk.is_frozen:
+        score -= 30
+        factors.append("Bot is FROZEN (circuit breaker)")
+
+    # PDT risk
+    pdt_used = bot._risk.pdt_trades_in_window()
+    if bot._risk.ACCOUNT_EQUITY < 25000 and pdt_used >= 2:
+        score -= 15
+        factors.append(f"PDT close: {pdt_used}/3 day trades used")
+
+    score = max(0, min(100, score))
+    grade = "A+" if score >= 95 else "A" if score >= 85 else "B" if score >= 70 else "C" if score >= 55 else "D" if score >= 40 else "F"
+    return {"score": score, "grade": grade, "factors": factors}
+
+
+# ── Day's Grade ──────────────────────────────────────────────────────────────
+
+@router.get("/days-grade")
+async def days_grade(request: Request):
+    bot = _bot(request)
+    today = datetime.now().date().isoformat()
+    trades = [t for t in bot._trade_log.recent_trades(100) if (t.get("exit_date") or "").startswith(today)]
+    if not trades:
+        return {"grade": "—", "pnl": 0, "win_rate": 0}
+    pnl = sum(t.get("pnl", 0) for t in trades)
+    wins = sum(1 for t in trades if t.get("pnl", 0) > 0)
+    win_rate = wins / len(trades) * 100
+    if pnl >= 100 and win_rate >= 70: grade = "A+"
+    elif pnl >= 50 and win_rate >= 60: grade = "A"
+    elif pnl > 0 and win_rate >= 50: grade = "B"
+    elif pnl > 0: grade = "C"
+    elif pnl > -50: grade = "D"
+    else: grade = "F"
+    return {"grade": grade, "pnl": round(pnl, 2), "win_rate": round(win_rate, 1), "trades": len(trades)}
+
+
+# ── Strategy Comparison ──────────────────────────────────────────────────────
+
+@router.get("/strategy-comparison")
+async def strategy_comparison(request: Request):
+    bot = _bot(request)
+    by_strat = bot.get_trade_stats().get("by_strategy", {})
+    sm = bot.strategy_manager
+    out = []
+    for name, strat in sm.strategies.items():
+        s = by_strat.get(name, {})
+        out.append({
+            "name": name,
+            "enabled": name in sm.enabled,
+            "intraday": strat.intraday,
+            "min_score": strat.min_score_to_buy,
+            "trades": s.get("num_trades", 0),
+            "win_rate": s.get("win_rate", 0) * 100,
+            "total_pnl": s.get("total_pnl", 0),
+            "avg_pnl": s.get("avg_pnl", 0),
+        })
+    return {"strategies": out}
+
+
 @router.get("/personal-records")
 async def personal_records(request: Request):
     trades = _bot(request)._trade_log.recent_trades(1000)

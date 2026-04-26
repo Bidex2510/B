@@ -846,6 +846,7 @@
     <button class="tab-btn active" onclick="switchTab('overview')">Overview</button>
     <button class="tab-btn" onclick="switchTab('positions')">Positions</button>
     <button class="tab-btn" onclick="switchTab('history')">History</button>
+    <button class="tab-btn" onclick="switchTab('markets')">Markets</button>
     <button class="tab-btn" onclick="switchTab('backtest')">Backtest</button>
     <button class="tab-btn" onclick="switchTab('analytics')">Analytics</button>
     <button class="tab-btn" onclick="switchTab('settings')">Settings</button>
@@ -1092,6 +1093,28 @@
     <div class="chart-panel" style="margin-bottom: 15px;">
       <div class="chart-title">📰 Today's Narrative</div>
       <div id="dailyNarrative" style="font-size: 14px; padding: 12px; line-height: 1.6;"></div>
+    </div>
+
+    <div class="charts-row">
+      <div class="chart-panel" style="text-align: center;">
+        <div class="chart-title">Today's Grade</div>
+        <div style="font-size: 80px; font-weight: 800; font-family: 'JetBrains Mono', monospace;" id="daysGrade">—</div>
+        <div style="font-size: 12px; color: var(--muted);" id="daysGradeDetail">No trades yet today</div>
+      </div>
+      <div class="chart-panel" style="text-align: center;">
+        <div class="chart-title">Portfolio Risk Score</div>
+        <div style="font-size: 80px; font-weight: 800; font-family: 'JetBrains Mono', monospace; color: var(--green);" id="riskScoreVal">—</div>
+        <div style="font-size: 14px; font-weight: 700;" id="riskScoreGrade">—</div>
+        <div id="riskFactors" style="font-size: 11px; color: var(--muted); margin-top: 8px; text-align: left;"></div>
+      </div>
+    </div>
+
+    <div class="chart-panel" style="margin-bottom: 15px;">
+      <div class="chart-title">Strategy Comparison</div>
+      <table class="positions-table" style="font-size: 12px;">
+        <thead><tr><th>Strategy</th><th>Status</th><th>Min Score</th><th>Trades</th><th>Win %</th><th>Total P&L</th></tr></thead>
+        <tbody id="stratCompBody"></tbody>
+      </table>
     </div>
 
     <div class="charts-row">
@@ -1501,6 +1524,22 @@
       </div>
       <input type="file" id="restoreInput" style="display:none;" accept=".json" onchange="restoreSettings(event)">
       <div class="help-text">Save all your risk settings, strategies, watchlist, alerts, pinned symbols.</div>
+    </div>
+  </div>
+
+  <!-- ===== MARKETS TAB ===== -->
+  <div id="markets" class="tab-content">
+    <div class="chart-panel" style="margin-bottom: 15px;">
+      <div class="chart-title">📰 Market News</div>
+      <div id="marketNewsList" style="margin-top: 10px;"></div>
+    </div>
+
+    <div class="chart-panel" style="margin-bottom: 15px;">
+      <div class="chart-title">Watchlist Quotes (sorted by % change)</div>
+      <table class="positions-table" style="font-size: 12px;">
+        <thead><tr><th>Symbol</th><th>Price</th><th>Change %</th><th>Volume</th><th></th></tr></thead>
+        <tbody id="watchlistQuotes"></tbody>
+      </table>
     </div>
   </div>
 
@@ -3105,6 +3144,100 @@
     addNotification('JSON exported');
   }
 
+  // ===== WATCHLIST QUOTES =====
+  async function fetchWatchlistQuotes() {
+    try {
+      const res = await fetch('/api/trading/watchlist-quotes');
+      const d = await res.json();
+      const body = document.getElementById('watchlistQuotes');
+      if (!body) return;
+      body.innerHTML = d.quotes.map(q => `<tr>
+        <td><span style="color:var(--accent); cursor:pointer;" onclick="openChart('${q.symbol}')">${q.symbol}</span></td>
+        <td>$${q.price.toFixed(2)}</td>
+        <td style="color:${q.change_pct>=0?'var(--green)':'var(--red)'};">${q.change_pct>=0?'▲':'▼'} ${Math.abs(q.change_pct).toFixed(2)}%</td>
+        <td>${q.volume.toLocaleString()}</td>
+        <td><button class="control-btn" onclick="addPriceAlertFor('${q.symbol}', ${q.price})">🔔 Alert</button></td>
+      </tr>`).join('') || '<tr><td colspan="5" style="text-align:center; color:var(--muted); padding:20px;">No data</td></tr>';
+    } catch (e) {}
+  }
+
+  function addPriceAlertFor(sym, price) {
+    document.getElementById('alertSymbol').value = sym;
+    document.getElementById('alertPrice').value = price.toFixed(2);
+    switchTabName('settings');
+    document.getElementById('alertSymbol').scrollIntoView({behavior: 'smooth', block: 'center'});
+  }
+
+  function switchTabName(name) {
+    document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+    document.getElementById(name)?.classList.add('active');
+    Array.from(document.querySelectorAll('.tab-btn')).find(b => b.textContent.toLowerCase().includes(name))?.classList.add('active');
+  }
+
+  // ===== MARKET NEWS =====
+  async function fetchMarketNews() {
+    try {
+      const res = await fetch('/api/trading/market-news');
+      const d = await res.json();
+      const el = document.getElementById('marketNewsList');
+      if (!el) return;
+      if (!d.articles.length) { el.innerHTML = '<div style="color:var(--muted); padding:12px; text-align:center;">No news (set NEWS_API_KEY in .env)</div>'; return; }
+      el.innerHTML = d.articles.map(a => `<div style="padding:10px; border-bottom:1px solid var(--line);">
+        <a href="${a.url}" target="_blank" style="color:var(--accent); text-decoration:none; font-weight:600; font-size:13px;">${a.title}</a>
+        <div style="font-size:11px; color:var(--muted); margin-top:4px;">${a.source} • ${a.published}</div>
+      </div>`).join('');
+    } catch (e) {}
+  }
+
+  // ===== RISK SCORE =====
+  async function fetchRiskScore() {
+    try {
+      const res = await fetch('/api/trading/risk-score');
+      const d = await res.json();
+      const v = document.getElementById('riskScoreVal');
+      if (!v) return;
+      v.textContent = d.score;
+      v.style.color = d.score >= 80 ? 'var(--green)' : d.score >= 60 ? 'var(--yellow)' : 'var(--red)';
+      document.getElementById('riskScoreGrade').textContent = 'Grade: ' + d.grade;
+      document.getElementById('riskFactors').innerHTML = (d.factors || []).map(f => `<div>• ${f}</div>`).join('') || '<div style="text-align:center; color:var(--muted);">No risk factors detected</div>';
+    } catch (e) {}
+  }
+
+  // ===== DAY'S GRADE =====
+  async function fetchDaysGrade() {
+    try {
+      const res = await fetch('/api/trading/days-grade');
+      const d = await res.json();
+      const el = document.getElementById('daysGrade');
+      if (!el) return;
+      el.textContent = d.grade;
+      const colorMap = {'A+':'var(--green)','A':'var(--green)','B':'var(--accent)','C':'var(--yellow)','D':'var(--red)','F':'var(--red)','—':'var(--muted)'};
+      el.style.color = colorMap[d.grade] || 'var(--text)';
+      const det = document.getElementById('daysGradeDetail');
+      if (d.trades > 0) det.textContent = `${d.trades} trades · ${d.win_rate}% win · $${d.pnl.toFixed(2)}`;
+      else det.textContent = 'No trades yet today';
+    } catch (e) {}
+  }
+
+  // ===== STRATEGY COMPARISON =====
+  async function fetchStrategyComparison() {
+    try {
+      const res = await fetch('/api/trading/strategy-comparison');
+      const d = await res.json();
+      const body = document.getElementById('stratCompBody');
+      if (!body) return;
+      body.innerHTML = d.strategies.map(s => `<tr>
+        <td style="text-transform:capitalize;">${s.intraday ? '⚡' : '🌊'} ${s.name}</td>
+        <td><span style="color:${s.enabled?'var(--green)':'var(--red)'};">${s.enabled?'● ON':'○ OFF'}</span></td>
+        <td>${s.min_score.toFixed(2)}</td>
+        <td>${s.trades}</td>
+        <td>${s.win_rate.toFixed(0)}%</td>
+        <td style="color:${s.total_pnl>=0?'var(--green)':'var(--red)'};">$${s.total_pnl.toFixed(2)}</td>
+      </tr>`).join('');
+    } catch (e) {}
+  }
+
   // ===== DAILY NARRATIVE =====
   async function fetchNarrative() {
     try {
@@ -3724,6 +3857,10 @@
     fetchRecords();
     fetchAchievements();
     fetchMonthly();
+    fetchRiskScore();
+    fetchDaysGrade();
+    fetchStrategyComparison();
+    fetchWatchlistQuotes();
     checkTimeAlerts();
     applyAutoTheme();
   }
@@ -3785,6 +3922,13 @@
   fetchRecords();
   fetchAchievements();
   fetchMonthly();
+  fetchMarketNews();
+  fetchWatchlistQuotes();
+  fetchRiskScore();
+  fetchDaysGrade();
+  fetchStrategyComparison();
+  setInterval(fetchMarketNews, 600000);
+  setInterval(fetchWatchlistQuotes, 60000);
   setConnectionStatus(navigator.onLine);
   window.addEventListener('online', () => setConnectionStatus(true));
   window.addEventListener('offline', () => setConnectionStatus(false));
