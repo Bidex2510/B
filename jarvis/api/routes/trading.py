@@ -1423,6 +1423,145 @@ async def bot_stats(request: Request):
 
 # ── Settings Backup ──────────────────────────────────────────────────────────
 
+# ── Personal Records / Achievements ──────────────────────────────────────────
+
+@router.get("/personal-records")
+async def personal_records(request: Request):
+    trades = _bot(request)._trade_log.recent_trades(1000)
+    if not trades:
+        return {"records": {}}
+    by_day: dict = {}
+    for t in trades:
+        try:
+            d = t.get("exit_date", "")[:10]
+            by_day.setdefault(d, {"pnl": 0, "trades": 0, "wins": 0})
+            by_day[d]["pnl"] += t.get("pnl", 0)
+            by_day[d]["trades"] += 1
+            if t.get("pnl", 0) > 0:
+                by_day[d]["wins"] += 1
+        except Exception:
+            pass
+    if not by_day:
+        return {"records": {}}
+    best_day = max(by_day.items(), key=lambda x: x[1]["pnl"])
+    worst_day = min(by_day.items(), key=lambda x: x[1]["pnl"])
+    most_trades = max(by_day.items(), key=lambda x: x[1]["trades"])
+    best_single = max(trades, key=lambda t: t.get("pnl", 0))
+    worst_single = min(trades, key=lambda t: t.get("pnl", 0))
+    return {"records": {
+        "best_day": {"date": best_day[0], "pnl": round(best_day[1]["pnl"], 2), "trades": best_day[1]["trades"]},
+        "worst_day": {"date": worst_day[0], "pnl": round(worst_day[1]["pnl"], 2), "trades": worst_day[1]["trades"]},
+        "most_active": {"date": most_trades[0], "trades": most_trades[1]["trades"]},
+        "biggest_win": {"symbol": best_single.get("symbol"), "pnl": best_single.get("pnl"), "date": (best_single.get("exit_date") or "")[:10]},
+        "biggest_loss": {"symbol": worst_single.get("symbol"), "pnl": worst_single.get("pnl"), "date": (worst_single.get("exit_date") or "")[:10]},
+    }}
+
+
+# ── Achievements (badges) ────────────────────────────────────────────────────
+
+@router.get("/achievements")
+async def achievements(request: Request):
+    bot = _bot(request)
+    trades = bot._trade_log.recent_trades(1000)
+    stats = bot._trade_log.stats()
+    badges = []
+
+    if len(trades) >= 1:
+        badges.append({"id": "first_trade", "label": "First Trade", "icon": "🎯", "earned": True})
+    if len(trades) >= 10:
+        badges.append({"id": "ten_trades", "label": "10 Trades", "icon": "🔟", "earned": True})
+    if len(trades) >= 50:
+        badges.append({"id": "fifty_trades", "label": "50 Trades", "icon": "5️⃣", "earned": True})
+    if len(trades) >= 100:
+        badges.append({"id": "century", "label": "100 Trades", "icon": "💯", "earned": True})
+    if stats.get("win_rate", 0) >= 50 and len(trades) >= 10:
+        badges.append({"id": "winning_record", "label": "Winning Record", "icon": "📈", "earned": True})
+    if stats.get("win_rate", 0) >= 70 and len(trades) >= 10:
+        badges.append({"id": "sharpshooter", "label": "Sharpshooter (70%+)", "icon": "🎯", "earned": True})
+    if stats.get("profit_factor", 0) >= 2:
+        badges.append({"id": "profit_machine", "label": "Profit Factor 2x+", "icon": "🚀", "earned": True})
+    if stats.get("total_pnl", 0) >= 100:
+        badges.append({"id": "first_100", "label": "First $100", "icon": "💰", "earned": True})
+    if stats.get("total_pnl", 0) >= 1000:
+        badges.append({"id": "thousand", "label": "First $1,000", "icon": "💎", "earned": True})
+
+    consec_wins = 0; max_wins = 0
+    for t in reversed(trades):
+        if t.get("pnl", 0) > 0:
+            consec_wins += 1
+            max_wins = max(max_wins, consec_wins)
+        else:
+            consec_wins = 0
+    if max_wins >= 5:
+        badges.append({"id": "streak_5", "label": "5-Win Streak", "icon": "🔥", "earned": True})
+    if max_wins >= 10:
+        badges.append({"id": "streak_10", "label": "10-Win Streak", "icon": "🌟", "earned": True})
+
+    return {"earned": badges, "total_count": len(badges)}
+
+
+# ── Daily Narrative (rule-based, no AI cost) ─────────────────────────────────
+
+@router.get("/daily-narrative")
+async def daily_narrative(request: Request):
+    bot = _bot(request)
+    trades = bot._trade_log.recent_trades(50)
+    today = datetime.now().date().isoformat()
+    today_trades = [t for t in trades if (t.get("exit_date") or "").startswith(today)]
+    if not today_trades:
+        return {"narrative": "No trades closed today yet. Bot is hunting for setups."}
+
+    pnl = sum(t.get("pnl", 0) for t in today_trades)
+    wins = [t for t in today_trades if t.get("pnl", 0) > 0]
+    win_rate = round(len(wins) / len(today_trades) * 100, 1)
+
+    parts = []
+    parts.append(f"📅 Today: {len(today_trades)} trade(s), {win_rate}% win rate.")
+    if pnl > 0:
+        parts.append(f"💰 Net P&L: +${pnl:.2f} — solid green day.")
+    elif pnl < 0:
+        parts.append(f"💔 Net P&L: ${pnl:.2f} — discipline matters; keep stops tight.")
+    else:
+        parts.append("⚖️ Net flat day.")
+
+    by_strat: dict = {}
+    for t in today_trades:
+        s = t.get("strategy", "?")
+        by_strat.setdefault(s, 0)
+        by_strat[s] += t.get("pnl", 0)
+    if by_strat:
+        best_strat = max(by_strat.items(), key=lambda x: x[1])
+        parts.append(f"🏆 Best strategy today: {best_strat[0]} (${best_strat[1]:+.2f})")
+
+    if today_trades:
+        biggest = max(today_trades, key=lambda t: abs(t.get("pnl", 0)))
+        parts.append(f"⚡ Biggest move: {biggest.get('symbol')} for ${biggest.get('pnl', 0):+.2f}")
+
+    return {"narrative": " ".join(parts), "today_pnl": round(pnl, 2),
+            "today_trades": len(today_trades), "today_win_rate": win_rate}
+
+
+# ── Monthly Performance ──────────────────────────────────────────────────────
+
+@router.get("/monthly-performance")
+async def monthly_performance(request: Request):
+    trades = _bot(request)._trade_log.recent_trades(1000)
+    by_month: dict = {}
+    for t in trades:
+        try:
+            m = (t.get("exit_date") or "")[:7]  # YYYY-MM
+            by_month.setdefault(m, {"trades": 0, "wins": 0, "pnl": 0})
+            by_month[m]["trades"] += 1
+            if t.get("pnl", 0) > 0:
+                by_month[m]["wins"] += 1
+            by_month[m]["pnl"] = round(by_month[m]["pnl"] + t.get("pnl", 0), 2)
+        except Exception:
+            pass
+    out = [{"month": m, **v, "win_rate": round(v["wins"]/v["trades"]*100, 1) if v["trades"] else 0}
+            for m, v in sorted(by_month.items())]
+    return {"by_month": out}
+
+
 @router.get("/settings-backup")
 async def settings_backup(request: Request):
     bot = _bot(request)

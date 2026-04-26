@@ -787,6 +787,10 @@
     <label style="font-size: 11px; color: var(--muted);">Voice Announcer</label>
     <button class="btn" onclick="toggleVoice()" id="voiceBtn" style="width: 100%; margin-top: 4px;">🔊 Enable</button>
   </div>
+  <div style="margin-bottom: 12px;">
+    <label style="font-size: 11px; color: var(--muted);">📝 Scratch Pad</label>
+    <textarea id="scratchPad" placeholder="Notes that persist across reloads..." style="width: 100%; min-height: 80px; background: var(--panel2); border: 1px solid var(--line); color: var(--text); padding: 8px; border-radius: 4px; font-size: 12px; margin-top: 4px;" oninput="localStorage.setItem('scratchPad', this.value)"></textarea>
+  </div>
   <div id="sidebarActivity" style="margin-top: 10px;"></div>
 </div>
 
@@ -1082,6 +1086,30 @@
       <table class="positions-table" id="stratPerfTable">
         <thead><tr><th>Strategy</th><th>Trades</th><th>Win %</th><th>Avg P&L</th><th>Total P&L</th></tr></thead>
         <tbody id="stratPerfBody"></tbody>
+      </table>
+    </div>
+
+    <div class="chart-panel" style="margin-bottom: 15px;">
+      <div class="chart-title">📰 Today's Narrative</div>
+      <div id="dailyNarrative" style="font-size: 14px; padding: 12px; line-height: 1.6;"></div>
+    </div>
+
+    <div class="charts-row">
+      <div class="chart-panel">
+        <div class="chart-title">🏆 Personal Records</div>
+        <div id="personalRecords" style="margin-top: 10px;"></div>
+      </div>
+      <div class="chart-panel">
+        <div class="chart-title">🎖 Achievements</div>
+        <div id="achievementsBox" style="margin-top: 10px; display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px;"></div>
+      </div>
+    </div>
+
+    <div class="chart-panel" style="margin-bottom: 15px;">
+      <div class="chart-title">Monthly Performance</div>
+      <table class="positions-table" style="font-size: 12px;">
+        <thead><tr><th>Month</th><th>Trades</th><th>Win Rate</th><th>P&L</th></tr></thead>
+        <tbody id="monthlyBody"></tbody>
       </table>
     </div>
 
@@ -3077,6 +3105,67 @@
     addNotification('JSON exported');
   }
 
+  // ===== DAILY NARRATIVE =====
+  async function fetchNarrative() {
+    try {
+      const res = await fetch('/api/trading/daily-narrative');
+      const d = await res.json();
+      const el = document.getElementById('dailyNarrative');
+      if (el) el.innerHTML = d.narrative;
+    } catch (e) {}
+  }
+
+  // ===== PERSONAL RECORDS =====
+  async function fetchRecords() {
+    try {
+      const res = await fetch('/api/trading/personal-records');
+      const d = await res.json();
+      const el = document.getElementById('personalRecords');
+      if (!el || !Object.keys(d.records).length) { if (el) el.innerHTML = '<div style="color:var(--muted); padding:12px; text-align:center;">No records yet</div>'; return; }
+      const r = d.records;
+      el.innerHTML = `
+        <div style="font-family:'JetBrains Mono',monospace; font-size:12px; line-height:1.8;">
+          <div>🥇 Best Day: <span style="color:var(--green); font-weight:700;">+$${r.best_day.pnl.toFixed(2)}</span> on ${r.best_day.date} (${r.best_day.trades} trades)</div>
+          <div>💔 Worst Day: <span style="color:var(--red); font-weight:700;">$${r.worst_day.pnl.toFixed(2)}</span> on ${r.worst_day.date}</div>
+          <div>⚡ Most Active: <span style="color:var(--accent);">${r.most_active.trades} trades</span> on ${r.most_active.date}</div>
+          <div>🏆 Biggest Win: <span style="color:var(--green); font-weight:700;">+$${r.biggest_win.pnl.toFixed(2)}</span> ${r.biggest_win.symbol} (${r.biggest_win.date})</div>
+          <div>💀 Biggest Loss: <span style="color:var(--red); font-weight:700;">$${r.biggest_loss.pnl.toFixed(2)}</span> ${r.biggest_loss.symbol} (${r.biggest_loss.date})</div>
+        </div>`;
+    } catch (e) {}
+  }
+
+  // ===== ACHIEVEMENTS =====
+  async function fetchAchievements() {
+    try {
+      const res = await fetch('/api/trading/achievements');
+      const d = await res.json();
+      const el = document.getElementById('achievementsBox');
+      if (!el) return;
+      if (!d.earned.length) { el.innerHTML = '<div style="grid-column: 1/-1; color:var(--muted); padding:20px; text-align:center;">No badges yet — start trading!</div>'; return; }
+      el.innerHTML = d.earned.map(b => `<div style="background:var(--panel2); border:1px solid var(--accent); border-radius:6px; padding:10px; text-align:center;">
+        <div style="font-size:24px;">${b.icon}</div>
+        <div style="font-size:10px; margin-top:4px;">${b.label}</div>
+      </div>`).join('');
+    } catch (e) {}
+  }
+
+  // ===== MONTHLY PERFORMANCE =====
+  async function fetchMonthly() {
+    try {
+      const res = await fetch('/api/trading/monthly-performance');
+      const d = await res.json();
+      const body = document.getElementById('monthlyBody');
+      if (!body) return;
+      if (!d.by_month.length) { body.innerHTML = '<tr><td colspan="4" style="text-align:center; color:var(--muted); padding:12px;">No trades yet</td></tr>'; return; }
+      body.innerHTML = d.by_month.map(m => `<tr>
+        <td>${m.month}</td>
+        <td>${m.trades}</td>
+        <td>${m.win_rate.toFixed(0)}%</td>
+        <td style="color:${m.pnl>=0?'var(--green)':'var(--red)'};">$${m.pnl.toFixed(2)}</td>
+      </tr>`).join('');
+    } catch (e) {}
+  }
+
   // ===== CLOSE BY STRATEGY =====
   async function closeByStrategy(name) {
     if (!confirm(`Close ALL ${name} positions?`)) return;
@@ -3631,6 +3720,10 @@
     fetchScannerStats();
     fetchSectorExposure();
     fetchDailyPnL();
+    fetchNarrative();
+    fetchRecords();
+    fetchAchievements();
+    fetchMonthly();
     checkTimeAlerts();
     applyAutoTheme();
   }
@@ -3685,6 +3778,13 @@
     document.getElementById('voiceBtn').textContent = '🔇 Disable';
     document.getElementById('voiceBtn').style.background = 'var(--accent)';
   }
+  // Restore scratch pad
+  const scratch = document.getElementById('scratchPad');
+  if (scratch) scratch.value = localStorage.getItem('scratchPad') || '';
+  fetchNarrative();
+  fetchRecords();
+  fetchAchievements();
+  fetchMonthly();
   setConnectionStatus(navigator.onLine);
   window.addEventListener('online', () => setConnectionStatus(true));
   window.addEventListener('offline', () => setConnectionStatus(false));
