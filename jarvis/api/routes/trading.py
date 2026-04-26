@@ -1425,6 +1425,108 @@ async def bot_stats(request: Request):
 
 # ── Personal Records / Achievements ──────────────────────────────────────────
 
+# ── Live Signal Strength Across Watchlist ────────────────────────────────────
+
+@router.get("/signal-strength")
+async def signal_strength(request: Request):
+    bot = _bot(request)
+    sm = bot.strategy_manager
+    from jarvis.plugins.trading.scanner import get_watchlist
+    syms = get_watchlist()[:12]
+    out = []
+    for sym in syms:
+        try:
+            sigs = sm.evaluate_all(sym, sentiment=0, fundamental_score=0.5)
+            if sigs:
+                best = max(sigs, key=lambda s: s.score)
+                out.append({"symbol": sym, "score": round(best.score, 3),
+                             "strategy": best.strategy_name, "signal_count": len(sigs)})
+            else:
+                out.append({"symbol": sym, "score": 0, "strategy": None, "signal_count": 0})
+        except Exception:
+            pass
+    out.sort(key=lambda x: x["score"], reverse=True)
+    return {"signals": out}
+
+
+# ── Portfolio History ────────────────────────────────────────────────────────
+
+@router.get("/portfolio-history")
+async def portfolio_history(request: Request):
+    eq = _bot(request)._trade_log.equity_history()
+    return {"history": eq[-200:]}
+
+
+# ── YTD Stats ────────────────────────────────────────────────────────────────
+
+@router.get("/ytd-stats")
+async def ytd_stats(request: Request):
+    bot = _bot(request)
+    year = datetime.now().year
+    trades = [t for t in bot._trade_log.recent_trades(2000)
+              if (t.get("exit_date") or "").startswith(str(year))]
+    if not trades:
+        return {"trades": 0, "pnl": 0, "win_rate": 0, "best_month": None, "worst_month": None}
+    by_month: dict = {}
+    for t in trades:
+        m = (t.get("exit_date") or "")[:7]
+        by_month.setdefault(m, 0)
+        by_month[m] = round(by_month[m] + t.get("pnl", 0), 2)
+    pnl = round(sum(t.get("pnl", 0) for t in trades), 2)
+    wins = sum(1 for t in trades if t.get("pnl", 0) > 0)
+    best = max(by_month.items(), key=lambda x: x[1])
+    worst = min(by_month.items(), key=lambda x: x[1])
+    return {"trades": len(trades), "pnl": pnl,
+            "win_rate": round(wins / len(trades) * 100, 1),
+            "best_month": {"month": best[0], "pnl": best[1]},
+            "worst_month": {"month": worst[0], "pnl": worst[1]},
+            "winning_months": sum(1 for v in by_month.values() if v > 0),
+            "total_months": len(by_month)}
+
+
+# ── Weekly P&L ───────────────────────────────────────────────────────────────
+
+@router.get("/weekly-pnl")
+async def weekly_pnl(request: Request):
+    trades = _bot(request)._trade_log.recent_trades(500)
+    by_week: dict = {}
+    for t in trades:
+        try:
+            ts = datetime.fromisoformat(t.get("exit_date", ""))
+            year, week, _ = ts.isocalendar()
+            key = f"{year}-W{week:02d}"
+            by_week.setdefault(key, 0)
+            by_week[key] = round(by_week[key] + t.get("pnl", 0), 2)
+        except Exception:
+            pass
+    return {"by_week": [{"week": k, "pnl": v} for k, v in sorted(by_week.items())[-12:]]}
+
+
+# ── Scale In ─────────────────────────────────────────────────────────────────
+
+class ScaleInRequest(BaseModel):
+    shares: int
+
+
+@router.post("/scale-in/{symbol}")
+async def scale_in(symbol: str, req: ScaleInRequest, request: Request):
+    bot = _bot(request)
+    if not bot.is_running:
+        raise HTTPException(status_code=503, detail="Bot not running")
+    price = bot._client.get_current_price(symbol)
+    if not price:
+        raise HTTPException(status_code=404, detail=f"Cannot get price for {symbol}")
+    try:
+        # try to call the bot's buy method
+        if hasattr(bot, "_execute_buy"):
+            bot._execute_buy(symbol, req.shares, price, "manual: scale in", "manual")
+            _log_audit("scale_in", f"{symbol} +{req.shares} @ ${price:.2f}")
+            return {"message": f"Scaling in {req.shares} shares of {symbol} at ${price:.2f}"}
+    except Exception as e:
+        return {"message": f"Scale-in error: {e}"}
+    return {"message": "Scale-in not supported by bot"}
+
+
 # ── Index Overview (SPY, QQQ, IWM, DIA detailed) ─────────────────────────────
 
 @router.get("/index-overview")
