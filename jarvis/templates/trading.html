@@ -657,6 +657,32 @@
     .theme-option:hover { background: var(--panel2); }
     .theme-option.active { color: var(--accent); font-weight: 700; }
 
+    /* Floating action button */
+    .fab { position: fixed; bottom: 60px; right: 20px; width: 56px; height: 56px;
+      background: var(--accent); color: var(--bg); border-radius: 50%; border: none;
+      font-size: 24px; cursor: pointer; box-shadow: 0 4px 16px rgba(34,211,238,0.4);
+      z-index: 1000; transition: transform 0.2s; }
+    .fab:hover { transform: scale(1.1); }
+    .fab-menu { position: fixed; bottom: 130px; right: 20px; display: none; flex-direction: column; gap: 8px; z-index: 999; }
+    .fab-menu.show { display: flex; }
+    .fab-item { background: var(--panel); border: 1px solid var(--line); padding: 10px 14px;
+      border-radius: 6px; cursor: pointer; font-size: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+      white-space: nowrap; text-align: right; }
+    .fab-item:hover { background: var(--accent); color: var(--bg); }
+
+    /* Mood ring */
+    .mood-ring { width: 100px; height: 100px; border-radius: 50%; margin: 0 auto;
+      display: flex; align-items: center; justify-content: center; font-size: 36px;
+      transition: background 0.5s; }
+    .mood-bull { background: radial-gradient(circle, rgba(52,211,153,0.4), rgba(52,211,153,0.1)); border: 3px solid var(--green); }
+    .mood-bear { background: radial-gradient(circle, rgba(248,113,113,0.4), rgba(248,113,113,0.1)); border: 3px solid var(--red); }
+    .mood-neutral { background: radial-gradient(circle, rgba(251,191,36,0.4), rgba(251,191,36,0.1)); border: 3px solid var(--yellow); }
+
+    /* Welcome wizard */
+    #welcomeModal .modal-content { max-width: 560px; }
+    .welcome-step { display: none; }
+    .welcome-step.active { display: block; }
+
     /* Mobile Responsive */
     @media (max-width: 768px) {
       .top-bar {
@@ -914,6 +940,19 @@
     </div>
 
     <div id="earningsWarningBox" style="display: none; background: rgba(251,191,36,0.15); border: 1px solid var(--yellow); padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; font-size: 13px; color: var(--yellow);"></div>
+
+    <div class="charts-row">
+      <div class="chart-panel" style="text-align: center;">
+        <div class="chart-title">Market Mood</div>
+        <div class="mood-ring mood-neutral" id="moodRing">⚖️</div>
+        <div style="font-size: 14px; margin-top: 8px; font-weight: 700;" id="moodLabel">—</div>
+        <div id="moodParts" style="font-size: 11px; color: var(--muted); margin-top: 6px;"></div>
+      </div>
+      <div class="chart-panel">
+        <div class="chart-title">📊 Index Overview</div>
+        <div id="indexOverview" style="margin-top: 10px;"></div>
+      </div>
+    </div>
 
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px;">
       <div class="stat">
@@ -1649,6 +1688,16 @@
 
 </main>
 
+<!-- Floating Action Button -->
+<div class="fab-menu" id="fabMenu">
+  <div class="fab-item" onclick="sendCmd('/api/trading/scan-now'); toggleFab()">🔄 Scan Now</div>
+  <div class="fab-item" onclick="showSessionSummary(); toggleFab()">📊 Summary</div>
+  <div class="fab-item" onclick="exportPDF(); toggleFab()">📄 Export PDF</div>
+  <div class="fab-item" onclick="snoozeNotifs(15); toggleFab()">🔕 Snooze 15m</div>
+  <div class="fab-item" onclick="showModal('shortcuts'); toggleFab()">⌨ Shortcuts</div>
+</div>
+<button class="fab" onclick="toggleFab()" title="Quick actions">⚡</button>
+
 <!-- Status Bar -->
 <div class="status-bar">
   <div id="statusLeft">
@@ -1664,6 +1713,51 @@
 </div>
 
 <!-- Modals -->
+<div id="welcomeModal" class="modal">
+  <div class="modal-content" style="position: relative; max-width: 560px;">
+    <button class="modal-close" onclick="closeModal('welcome'); localStorage.setItem('welcomeShown','1')">×</button>
+    <div class="modal-title">👋 Welcome to your Trading Bot Dashboard</div>
+    <div class="welcome-step active" id="welcomeStep1">
+      <div style="font-size: 13px; line-height: 1.7; margin: 12px 0;">
+        <p>This dashboard controls your AI trading bot. A few key things:</p>
+        <ul style="margin-left: 20px; margin-top: 10px;">
+          <li><b>PAPER mode</b> means fake money - safe to learn</li>
+          <li>Click <b>Start</b> to let the bot trade automatically</li>
+          <li>Click <b>Freeze</b> (or press Space) to pause without selling</li>
+          <li>The <b>Backtest</b> tab tests strategies on historical data</li>
+        </ul>
+      </div>
+      <button class="btn btn-start" onclick="welcomeNext(2)" style="width: 100%; margin-top: 12px;">Next →</button>
+    </div>
+    <div class="welcome-step" id="welcomeStep2">
+      <div style="font-size: 13px; line-height: 1.7; margin: 12px 0;">
+        <p><b>Key shortcuts:</b></p>
+        <ul style="margin-left: 20px; font-family: 'JetBrains Mono', monospace; font-size: 12px; margin-top: 10px;">
+          <li>Ctrl+B → Start bot</li>
+          <li>Ctrl+S → Stop bot</li>
+          <li>Space → Freeze / Unfreeze</li>
+          <li>Ctrl+X → Close all positions (with confirm)</li>
+          <li>Ctrl+K → Quick search / command palette</li>
+          <li>Ctrl+F → Focus mode (P&L only)</li>
+        </ul>
+      </div>
+      <button class="btn btn-start" onclick="welcomeNext(3)" style="width: 100%; margin-top: 12px;">Next →</button>
+    </div>
+    <div class="welcome-step" id="welcomeStep3">
+      <div style="font-size: 13px; line-height: 1.7; margin: 12px 0;">
+        <p><b>Pro tips:</b></p>
+        <ul style="margin-left: 20px; margin-top: 10px;">
+          <li>Set a <b>daily goal</b> on Overview tab → confetti when you hit it</li>
+          <li>Use the <b>Settings tab</b> to enable Telegram + browser push notifications</li>
+          <li>Try a <b>preset</b> (Conservative/Balanced/Aggressive) before tuning manually</li>
+          <li>The <b>floating ⚡ button</b> (bottom-right) gives quick access to everything</li>
+        </ul>
+      </div>
+      <button class="btn btn-start" onclick="closeModal('welcome'); localStorage.setItem('welcomeShown','1')" style="width: 100%; margin-top: 12px;">Got it! Start Trading 🚀</button>
+    </div>
+  </div>
+</div>
+
 <div id="quickSearchModal" class="modal">
   <div class="modal-content" style="position: relative;">
     <button class="modal-close" onclick="closeModal('quickSearch')">×</button>
@@ -3144,6 +3238,62 @@
     addNotification('JSON exported');
   }
 
+  // ===== INDEX OVERVIEW =====
+  async function fetchIndexOverview() {
+    try {
+      const res = await fetch('/api/trading/index-overview');
+      const d = await res.json();
+      const el = document.getElementById('indexOverview');
+      if (!el) return;
+      el.innerHTML = d.indexes.map(i => `<div class="mover-row">
+        <span style="color:var(--accent); font-weight:700; min-width:50px;">${i.symbol}</span>
+        <span style="color:var(--muted); font-size:11px;">${i.name}</span>
+        <span>$${i.price.toFixed(2)}</span>
+        <span style="color:${i.change_pct>=0?'var(--green)':'var(--red)'};">${i.change_pct>=0?'+':''}${i.change_pct.toFixed(2)}%</span>
+      </div>`).join('') || '<div style="color:var(--muted); padding:12px; text-align:center;">No data</div>';
+    } catch (e) {}
+  }
+
+  // ===== MOOD =====
+  async function fetchMood() {
+    try {
+      const res = await fetch('/api/trading/mood');
+      const d = await res.json();
+      const ring = document.getElementById('moodRing');
+      const label = document.getElementById('moodLabel');
+      const parts = document.getElementById('moodParts');
+      if (!ring) return;
+      const emoji = d.mood.split(' ')[0];
+      ring.textContent = emoji;
+      label.textContent = d.mood;
+      ring.className = 'mood-ring ' + (d.score >= 60 ? 'mood-bull' : d.score <= 40 ? 'mood-bear' : 'mood-neutral');
+      parts.innerHTML = (d.parts || []).map(p => `<div>• ${p}</div>`).join('');
+    } catch (e) {}
+  }
+
+  // ===== FAB / SNOOZE =====
+  function toggleFab() {
+    document.getElementById('fabMenu').classList.toggle('show');
+  }
+
+  let _snoozeUntil = 0;
+  function snoozeNotifs(minutes) {
+    _snoozeUntil = Date.now() + minutes * 60 * 1000;
+    addNotification(`🔕 Notifications snoozed for ${minutes} min`);
+  }
+
+  // Patch addNotification to respect snooze (override sound + push)
+  const _origPlaySound = playSound;
+  playSound = function(type) { if (Date.now() < _snoozeUntil) return; return _origPlaySound(type); };
+  const _origPushNotify = pushNotify;
+  pushNotify = function(t, b) { if (Date.now() < _snoozeUntil) return; return _origPushNotify(t, b); };
+
+  // ===== WELCOME WIZARD =====
+  function welcomeNext(n) {
+    document.querySelectorAll('.welcome-step').forEach(s => s.classList.remove('active'));
+    document.getElementById('welcomeStep' + n).classList.add('active');
+  }
+
   // ===== WATCHLIST QUOTES =====
   async function fetchWatchlistQuotes() {
     try {
@@ -3861,6 +4011,8 @@
     fetchDaysGrade();
     fetchStrategyComparison();
     fetchWatchlistQuotes();
+    fetchIndexOverview();
+    fetchMood();
     checkTimeAlerts();
     applyAutoTheme();
   }
@@ -3927,8 +4079,14 @@
   fetchRiskScore();
   fetchDaysGrade();
   fetchStrategyComparison();
+  fetchIndexOverview();
+  fetchMood();
   setInterval(fetchMarketNews, 600000);
   setInterval(fetchWatchlistQuotes, 60000);
+  setInterval(fetchIndexOverview, 60000);
+  setInterval(fetchMood, 120000);
+  // Welcome wizard for first-time users
+  if (!localStorage.getItem('welcomeShown')) setTimeout(() => showModal('welcome'), 800);
   setConnectionStatus(navigator.onLine);
   window.addEventListener('online', () => setConnectionStatus(true));
   window.addEventListener('offline', () => setConnectionStatus(false));

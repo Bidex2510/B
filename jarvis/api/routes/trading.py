@@ -1425,6 +1425,59 @@ async def bot_stats(request: Request):
 
 # ── Personal Records / Achievements ──────────────────────────────────────────
 
+# ── Index Overview (SPY, QQQ, IWM, DIA detailed) ─────────────────────────────
+
+@router.get("/index-overview")
+async def index_overview():
+    indexes = [("SPY", "S&P 500"), ("QQQ", "Nasdaq 100"), ("IWM", "Russell 2000"), ("DIA", "Dow Jones")]
+    out = []
+    for sym, name in indexes:
+        try:
+            df = yf.Ticker(sym).history(period="5d", interval="1h")
+            if len(df) >= 2:
+                curr = float(df["Close"].iloc[-1])
+                day_open = float(df["Open"].iloc[0])
+                day_high = float(df["High"].max())
+                day_low = float(df["Low"].min())
+                chg = (curr - day_open) / day_open * 100
+                out.append({"symbol": sym, "name": name, "price": round(curr, 2),
+                             "change_pct": round(chg, 2), "high": round(day_high, 2),
+                             "low": round(day_low, 2)})
+        except Exception:
+            pass
+    return {"indexes": out}
+
+
+# ── Mood Indicator (combine VIX, breadth, fear/greed) ────────────────────────
+
+@router.get("/mood")
+async def mood_indicator():
+    score = 50  # neutral
+    parts = []
+    try:
+        vix = float(yf.Ticker("^VIX").history(period="1d")["Close"].iloc[-1])
+        if vix < 15: score += 15; parts.append(f"VIX low ({vix:.1f}) → calm")
+        elif vix > 25: score -= 20; parts.append(f"VIX high ({vix:.1f}) → fearful")
+        else: parts.append(f"VIX moderate ({vix:.1f})")
+    except Exception:
+        pass
+    try:
+        spy = yf.Ticker("SPY").history(period="2d")
+        if len(spy) >= 2:
+            chg = (spy["Close"].iloc[-1] - spy["Close"].iloc[-2]) / spy["Close"].iloc[-2] * 100
+            if chg > 1: score += 15; parts.append(f"SPY +{chg:.1f}% → bullish")
+            elif chg < -1: score -= 15; parts.append(f"SPY {chg:.1f}% → bearish")
+    except Exception:
+        pass
+    score = max(0, min(100, score))
+    if score >= 75: mood = "🚀 Euphoric"
+    elif score >= 60: mood = "📈 Bullish"
+    elif score >= 45: mood = "⚖️ Neutral"
+    elif score >= 30: mood = "📉 Bearish"
+    else: mood = "💀 Panic"
+    return {"score": score, "mood": mood, "parts": parts}
+
+
 # ── Watchlist Live Quotes ────────────────────────────────────────────────────
 
 @router.get("/watchlist-quotes")
