@@ -10,7 +10,7 @@ from jarvis.core.assistant import Jarvis
 from jarvis.api.routes import (
     chat, weather, email, news, spotify, home_assistant,
     ai, study, finance, utilities, system, tiktok, telegram,
-    tiktok_publisher, phone, calendar as gcalendar, briefing,
+    tiktok_publisher, phone, calendar as gcalendar, briefing, setup,
 )
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -54,6 +54,7 @@ app.include_router(telegram.router, prefix="/api/telegram", tags=["Telegram"])
 app.include_router(phone.router, prefix="/api/phone", tags=["Phone"])
 app.include_router(gcalendar.router, prefix="/api/calendar", tags=["Calendar"])
 app.include_router(briefing.router, prefix="/api/briefing", tags=["Daily Briefing"])
+app.include_router(setup.router, prefix="/api/setup", tags=["Setup"])
 
 
 @app.get("/")

@@ -28,3 +28,15 @@ services:
         sync: false
       - key: HOME_ASSISTANT_TOKEN
         sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TIKTOK_CLIENT_KEY
+        sync: false
+      - key: TIKTOK_CLIENT_SECRET
+        sync: false
+      - key: TIKTOK_REDIRECT_URI
+        sync: false
+      - key: GOOGLE_ACCESS_TOKEN
+        sync: false
+      - key: JARVIS_DATA_DIR
+        value: /opt/render/project/data
