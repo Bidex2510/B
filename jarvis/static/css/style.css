@@ -439,11 +439,229 @@ body::before {
     background: var(--primary-dim);
 }
 
-/* Responsive */
+/* ==================== TIKTOK PANEL ==================== */
+
+.tiktok-panel {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 20px;
+    transition: border-color 0.3s;
+}
+
+.tiktok-panel:hover {
+    border-color: #ff2d55;
+}
+
+.tiktok-panel h3 {
+    color: #ff2d55;
+    font-size: 0.9rem;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 15px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.tiktok-tabs {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 15px;
+    flex-wrap: wrap;
+}
+
+.tab-btn {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    padding: 6px 14px;
+    border-radius: 16px;
+    cursor: pointer;
+    font-size: 0.8rem;
+    transition: all 0.2s;
+}
+
+.tab-btn:hover, .tab-btn.active {
+    background: rgba(255, 45, 85, 0.15);
+    border-color: #ff2d55;
+    color: #ff2d55;
+}
+
+.tiktok-controls {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 15px;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.tiktok-controls input, .tiktok-controls select {
+    flex: 1;
+    min-width: 160px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 9px 14px;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    outline: none;
+}
+
+.tiktok-controls input:focus, .tiktok-controls select:focus {
+    border-color: #ff2d55;
+}
+
+.tiktok-controls select {
+    background: var(--bg-input);
+}
+
+.tiktok-btn {
+    background: #ff2d55;
+    border: none;
+    color: #fff;
+    padding: 9px 18px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-weight: 600;
+    transition: background 0.2s;
+    white-space: nowrap;
+}
+
+.tiktok-btn:hover {
+    background: #e0203e;
+}
+
+.tiktok-btn.secondary {
+    background: var(--bg-input);
+    border: 1px solid #ff2d55;
+    color: #ff2d55;
+}
+
+.tiktok-btn.secondary:hover {
+    background: rgba(255, 45, 85, 0.1);
+}
+
+#tiktok-output {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 15px;
+    min-height: 120px;
+    font-size: 0.85rem;
+    line-height: 1.7;
+    color: var(--text);
+    white-space: pre-wrap;
+    overflow-y: auto;
+    max-height: 380px;
+}
+
+#tiktok-output .idea-item {
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    transition: color 0.2s;
+}
+
+#tiktok-output .idea-item:hover {
+    color: #ff2d55;
+}
+
+#tiktok-output .idea-item:last-child {
+    border-bottom: none;
+}
+
+.category-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    margin-bottom: 6px;
+    letter-spacing: 1px;
+}
+
+.badge-sports { background: rgba(255, 170, 0, 0.15); color: var(--warning); }
+.badge-wholesome { background: rgba(0, 255, 136, 0.15); color: var(--secondary); }
+.badge-ai { background: rgba(0, 212, 255, 0.15); color: var(--primary); }
+
+.tiktok-loading {
+    color: var(--text-dim);
+    font-style: italic;
+    text-align: center;
+    padding: 30px 0;
+}
+
+.script-section {
+    margin-bottom: 12px;
+}
+
+.script-section strong {
+    color: #ff2d55;
+    display: block;
+    margin-bottom: 4px;
+    font-size: 0.8rem;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+}
+
+/* ==================== TELEGRAM SETUP BANNER ==================== */
+
+.telegram-banner {
+    background: linear-gradient(135deg, rgba(0, 136, 204, 0.1), rgba(0, 212, 255, 0.05));
+    border: 1px solid rgba(0, 136, 204, 0.3);
+    border-radius: 10px;
+    padding: 14px 18px;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.telegram-banner p {
+    font-size: 0.85rem;
+    color: var(--text-dim);
+}
+
+.telegram-banner strong {
+    color: #0088cc;
+}
+
+.telegram-link {
+    background: #0088cc;
+    color: white;
+    border: none;
+    padding: 7px 16px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-decoration: none;
+    display: inline-block;
+    transition: background 0.2s;
+}
+
+.telegram-link:hover {
+    background: #0073aa;
+}
+
+/* ==================== RESPONSIVE (MOBILE-FIRST) ==================== */
+
 @media (max-width: 768px) {
     .jarvis-header h1 {
         font-size: 1.8rem;
-        letter-spacing: 8px;
+        letter-spacing: 6px;
+    }
+
+    .subtitle {
+        font-size: 0.75rem;
+        letter-spacing: 2px;
     }
 
     .panels-grid {
@@ -451,11 +669,29 @@ body::before {
     }
 
     .chat-messages {
-        height: 250px;
+        height: 260px;
     }
 
     .message {
         max-width: 95%;
+    }
+
+    .tiktok-controls {
+        flex-direction: column;
+    }
+
+    .tiktok-controls input,
+    .tiktok-controls select {
+        width: 100%;
+    }
+
+    .tiktok-btn {
+        width: 100%;
+        text-align: center;
+    }
+
+    #tiktok-output {
+        max-height: 260px;
     }
 }
 
@@ -464,12 +700,35 @@ body::before {
         padding: 10px;
     }
 
+    .jarvis-header {
+        padding: 20px 0;
+    }
+
+    .arc-reactor {
+        width: 45px;
+        height: 45px;
+    }
+
     .quick-actions {
         gap: 6px;
     }
 
     .action-btn {
         padding: 6px 12px;
+        font-size: 0.75rem;
+        letter-spacing: 0;
+    }
+
+    .chat-messages {
+        height: 220px;
+    }
+
+    .tiktok-tabs {
+        gap: 4px;
+    }
+
+    .tab-btn {
+        padding: 5px 10px;
         font-size: 0.75rem;
     }
 }

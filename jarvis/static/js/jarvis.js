@@ -316,11 +316,197 @@ async function lookupWord() {
     }
 }
 
+// ==================== TIKTOK CONTENT MANAGER ====================
+
+let currentTikTokTab = 'ideas';
+
+function setTikTokTab(tab, btn) {
+    currentTikTokTab = tab;
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+
+    document.querySelectorAll('.tiktok-tab-content').forEach(el => el.style.display = 'none');
+    const tabEl = document.getElementById(`tab-${tab}`);
+    if (tabEl) tabEl.style.display = 'block';
+
+    document.getElementById('tiktok-output').innerHTML =
+        '<p class="tiktok-loading">Click the button above to generate content, sir.</p>';
+}
+
+async function getTikTokIdeas() {
+    const category = document.getElementById('ideas-category').value;
+    setTikTokLoading('Generating video ideas...');
+
+    try {
+        const resp = await fetch(`${API}/api/tiktok/ideas?category=${category}&count=5`);
+        const data = await resp.json();
+        renderTikTokIdeas(data, category);
+    } catch (e) {
+        setTikTokOutput('Failed to fetch ideas. Check server connection.');
+    }
+}
+
+function renderTikTokIdeas(data, category) {
+    const out = document.getElementById('tiktok-output');
+
+    if (category === 'all') {
+        let html = '';
+        const badges = { sports: 'badge-sports', wholesome: 'badge-wholesome', ai: 'badge-ai' };
+        const labels = { sports: '⚽ SPORTS', wholesome: '💝 WHOLESOME', ai: '🤖 AI' };
+        for (const [cat, ideas] of Object.entries(data.ideas || {})) {
+            html += `<div class="category-badge ${badges[cat]}">${labels[cat]}</div>`;
+            ideas.forEach(idea => {
+                html += `<div class="idea-item" onclick="prefillScript('${cat}', '${escapeJs(idea)}')">${escapeHtml(idea)}</div>`;
+            });
+        }
+        out.innerHTML = html || '<p class="tiktok-loading">No ideas returned.</p>';
+    } else {
+        const ideas = data.ideas || [];
+        const labels = { sports: '⚽ SPORTS', wholesome: '💝 WHOLESOME', ai: '🤖 AI' };
+        const badges = { sports: 'badge-sports', wholesome: 'badge-wholesome', ai: 'badge-ai' };
+        let html = `<div class="category-badge ${badges[category]}">${labels[category] || category.toUpperCase()}</div>`;
+        ideas.forEach(idea => {
+            html += `<div class="idea-item" onclick="prefillScript('${category}', '${escapeJs(idea)}')">${escapeHtml(idea)}</div>`;
+        });
+        out.innerHTML = html || '<p class="tiktok-loading">No ideas returned.</p>';
+    }
+}
+
+function prefillScript(category, topic) {
+    setTikTokTab('script', document.querySelectorAll('.tab-btn')[1]);
+    document.getElementById('script-category').value = category;
+    document.getElementById('script-topic').value = topic;
+    addMessage(`Switched to Script tab with topic: "${topic}"`, 'jarvis');
+}
+
+async function generateScript() {
+    const category = document.getElementById('script-category').value;
+    const topic = document.getElementById('script-topic').value.trim() || `viral ${category} content`;
+    const duration = parseInt(document.getElementById('script-duration').value);
+
+    setTikTokLoading('Writing your script... (this may take a few seconds)');
+
+    try {
+        const resp = await fetch(`${API}/api/tiktok/script`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ category, topic, duration }),
+        });
+        const data = await resp.json();
+
+        if (data.script) {
+            setTikTokOutput(data.script);
+        } else if (data.sample_script) {
+            const s = data.sample_script;
+            setTikTokOutput(
+                `HOOK:\n${s.hook}\n\nCONTENT:\n${s.content}\n\nCTA:\n${s.cta}\n\nCAPTION:\n${s.caption}\n\n⚠️ ${s.note}`
+            );
+        } else {
+            setTikTokOutput(data.message || 'Error generating script.');
+        }
+    } catch (e) {
+        setTikTokOutput('Failed to generate script. Check server connection.');
+    }
+}
+
+async function generateCaption() {
+    const category = document.getElementById('caption-category').value;
+    const topic = document.getElementById('caption-topic').value.trim() || category + ' content';
+
+    setTikTokLoading('Generating captions and hashtags...');
+
+    try {
+        const resp = await fetch(`${API}/api/tiktok/caption`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ category, topic }),
+        });
+        const data = await resp.json();
+
+        const captions = (data.captions || []).map((c, i) =>
+            `Option ${i + 1}:\n${c}`
+        ).join('\n\n');
+        const tags = (data.hashtags || []).join(' ');
+        const tip = data.tip || '';
+        setTikTokOutput(`${captions}\n\nHASHTAGS:\n${tags}\n\n💡 ${tip}`);
+    } catch (e) {
+        setTikTokOutput('Failed to generate captions.');
+    }
+}
+
+async function getTikTokCalendar() {
+    setTikTokLoading('Loading content calendar...');
+    try {
+        const resp = await fetch(`${API}/api/tiktok/calendar`);
+        const data = await resp.json();
+
+        let text = 'WEEKLY TIKTOK CONTENT CALENDAR\n\n';
+        (data.calendar || []).forEach(entry => {
+            const emoji = { AI: '🤖', Sports: '⚽', Wholesome: '💝' }[entry.category] || '📹';
+            text += `${entry.day} (${entry.time})\n`;
+            text += `  ${emoji} ${entry.category}: ${entry.idea}\n`;
+            text += `  💡 ${entry.why}\n\n`;
+        });
+        if (data.strategy) text += `STRATEGY: ${data.strategy}\n\n`;
+        if (data.optimal_length) {
+            text += 'OPTIMAL VIDEO LENGTH:\n';
+            for (const [cat, len] of Object.entries(data.optimal_length)) {
+                text += `  ${cat}: ${len}\n`;
+            }
+            text += '\n';
+        }
+        if (data.account_tips) {
+            text += 'ACCOUNT TIPS:\n';
+            data.account_tips.forEach(tip => { text += `  • ${tip}\n`; });
+        }
+        setTikTokOutput(text);
+    } catch (e) {
+        setTikTokOutput('Failed to load calendar.');
+    }
+}
+
+async function getTikTokTrending() {
+    setTikTokLoading('Fetching trending topics...');
+    try {
+        const resp = await fetch(`${API}/api/tiktok/trending`);
+        const data = await resp.json();
+
+        let text = 'TRENDING TOPICS BY NICHE\n\n';
+        const sections = [
+            ['⚽ SPORTS', data.sports],
+            ['💝 WHOLESOME', data.wholesome],
+            ['🤖 AI / TECH', data.ai],
+        ];
+        sections.forEach(([label, topics]) => {
+            text += `${label}:\n`;
+            (topics || []).forEach(t => { text += `  • ${t}\n`; });
+            text += '\n';
+        });
+        if (data.hook_tip) text += `HOOK TIP: ${data.hook_tip}\n`;
+        if (data.algorithm_tip) text += `\nALGORITHM: ${data.algorithm_tip}`;
+        setTikTokOutput(text);
+    } catch (e) {
+        setTikTokOutput('Failed to fetch trending topics.');
+    }
+}
+
+function setTikTokLoading(msg) {
+    document.getElementById('tiktok-output').innerHTML =
+        `<p class="tiktok-loading">${escapeHtml(msg)}</p>`;
+}
+
+function setTikTokOutput(text) {
+    const out = document.getElementById('tiktok-output');
+    out.textContent = text;
+}
+
+function escapeJs(str) {
+    return str.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"');
+}
+
 // === INIT ===
 document.addEventListener('DOMContentLoaded', () => {
     loadTasks();
     showBudget();
-
-    // Focus chat input
     document.getElementById('chat-input').focus();
 });

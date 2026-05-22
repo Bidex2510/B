@@ -2,12 +2,13 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
     <title>JARVIS - Personal AI Assistant</title>
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
     <div class="jarvis-container">
+
         <!-- Header -->
         <header class="jarvis-header">
             <div class="arc-reactor"></div>
@@ -18,6 +19,13 @@
                 <span id="status-text">All Systems Online</span>
             </div>
         </header>
+
+        <!-- Telegram Phone Control Banner -->
+        <div class="telegram-banner">
+            <p><strong>📱 Control Jarvis from your phone — FREE!</strong><br>
+            Set up a Telegram bot in 2 minutes. Search <strong>@BotFather</strong> in Telegram, create a bot, add <code>TELEGRAM_BOT_TOKEN</code> to your .env, then call <code>POST /api/telegram/set-webhook</code>.</p>
+            <a href="/docs#/Telegram" class="telegram-link" target="_blank">Setup Guide →</a>
+        </div>
 
         <!-- Quick Actions -->
         <div class="quick-actions">
@@ -37,13 +45,90 @@
                 <div class="message jarvis-msg">
                     <span class="sender">JARVIS</span>
                     <p>Good day, sir. All systems are operational. How may I assist you today?</p>
-                    <p class="hint">Try: "What's the weather?", "Show my tasks", "Calculate 42 * 13", or just ask me anything.</p>
+                    <p class="hint">Try: "tiktok ideas", "sports video ideas", "wholesome content", "What's the weather?", or ask me anything.</p>
                 </div>
             </div>
             <div class="chat-input-container">
                 <input type="text" id="chat-input" placeholder="Ask Jarvis anything..."
                        onkeypress="if(event.key==='Enter')sendMessage()">
                 <button onclick="sendMessage()" class="send-btn">Send</button>
+            </div>
+        </div>
+
+        <!-- TikTok Content Manager Panel -->
+        <div class="tiktok-panel">
+            <h3>🎵 TikTok Content Manager</h3>
+
+            <!-- Category Tabs -->
+            <div class="tiktok-tabs">
+                <button class="tab-btn active" onclick="setTikTokTab('ideas', this)">💡 Ideas</button>
+                <button class="tab-btn" onclick="setTikTokTab('script', this)">📝 Script</button>
+                <button class="tab-btn" onclick="setTikTokTab('caption', this)">🏷️ Caption</button>
+                <button class="tab-btn" onclick="setTikTokTab('calendar', this)">📅 Calendar</button>
+                <button class="tab-btn" onclick="setTikTokTab('trending', this)">🔥 Trending</button>
+            </div>
+
+            <!-- Ideas Tab -->
+            <div id="tab-ideas" class="tiktok-tab-content">
+                <div class="tiktok-controls">
+                    <select id="ideas-category">
+                        <option value="all">All Categories</option>
+                        <option value="sports">⚽ Sports</option>
+                        <option value="wholesome">💝 Wholesome</option>
+                        <option value="ai">🤖 AI / Tech</option>
+                    </select>
+                    <button class="tiktok-btn" onclick="getTikTokIdeas()">Get Ideas</button>
+                </div>
+            </div>
+
+            <!-- Script Tab -->
+            <div id="tab-script" class="tiktok-tab-content" style="display:none">
+                <div class="tiktok-controls">
+                    <select id="script-category">
+                        <option value="sports">⚽ Sports</option>
+                        <option value="wholesome">💝 Wholesome</option>
+                        <option value="ai">🤖 AI / Tech</option>
+                    </select>
+                    <input type="text" id="script-topic" placeholder="Topic (e.g. LeBron James training secrets)">
+                    <select id="script-duration">
+                        <option value="30">30 seconds</option>
+                        <option value="60" selected>60 seconds</option>
+                        <option value="90">90 seconds</option>
+                    </select>
+                    <button class="tiktok-btn" onclick="generateScript()">Generate Script</button>
+                </div>
+            </div>
+
+            <!-- Caption Tab -->
+            <div id="tab-caption" class="tiktok-tab-content" style="display:none">
+                <div class="tiktok-controls">
+                    <select id="caption-category">
+                        <option value="sports">⚽ Sports</option>
+                        <option value="wholesome">💝 Wholesome</option>
+                        <option value="ai">🤖 AI / Tech</option>
+                    </select>
+                    <input type="text" id="caption-topic" placeholder="Video topic (e.g. crazy basketball dunk)">
+                    <button class="tiktok-btn" onclick="generateCaption()">Generate Captions</button>
+                </div>
+            </div>
+
+            <!-- Calendar Tab -->
+            <div id="tab-calendar" class="tiktok-tab-content" style="display:none">
+                <div class="tiktok-controls">
+                    <button class="tiktok-btn" onclick="getTikTokCalendar()">Show Weekly Calendar</button>
+                </div>
+            </div>
+
+            <!-- Trending Tab -->
+            <div id="tab-trending" class="tiktok-tab-content" style="display:none">
+                <div class="tiktok-controls">
+                    <button class="tiktok-btn" onclick="getTikTokTrending()">Get Trending Topics</button>
+                </div>
+            </div>
+
+            <!-- Output Area -->
+            <div id="tiktok-output">
+                <p class="tiktok-loading">Select a category and click a button above to generate content, sir.</p>
             </div>
         </div>
 
@@ -112,7 +197,7 @@
 
         <!-- Footer -->
         <footer class="jarvis-footer">
-            <p>Jarvis AI Assistant v2.0 | <a href="/docs" target="_blank">API Docs</a> | Built with FastAPI</p>
+            <p>Jarvis AI Assistant v2.0 | <a href="/docs" target="_blank">API Docs</a> | <a href="/api/telegram/setup" target="_blank">Telegram Setup</a> | Built with FastAPI</p>
         </footer>
     </div>
 
