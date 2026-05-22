@@ -9,6 +9,7 @@ from jarvis.plugins.smart_home import SmartHomePlugin
 from jarvis.plugins.knowledge import KnowledgePlugin
 from jarvis.plugins.web_search import WebSearchPlugin
 from jarvis.plugins.tiktok_manager import TikTokManagerPlugin
+from jarvis.plugins.life_manager import LifeManagerPlugin
 
 
 class Jarvis:
@@ -39,6 +40,7 @@ class Jarvis:
             KnowledgePlugin(),
             WebSearchPlugin(),
             TikTokManagerPlugin(),
+            LifeManagerPlugin(),
         ]
         for plugin in plugins:
             self.brain.register_plugin(plugin.name, plugin)

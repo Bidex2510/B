@@ -53,8 +53,14 @@ async def _route(text: str, request: Request) -> str:
 
     if lower in ("/start", "/help"):
         return (
-            "🤖 *JARVIS - Your AI Content Assistant*\n\n"
-            "TikTok Commands:\n"
+            "🤖 *JARVIS - Your Life Manager*\n\n"
+            "*Life Manager:*\n"
+            "  /briefing — full morning briefing\n"
+            "  /evening — evening recap\n"
+            "  /emails — AI inbox digest\n"
+            "  /calls — missed call log\n"
+            "  /events — today's calendar\n\n"
+            "*TikTok Content:*\n"
             "  /ideas — video ideas (all categories)\n"
             "  /sports — sports video ideas\n"
             "  /wholesome — feel-good video ideas\n"
@@ -63,7 +69,7 @@ async def _route(text: str, request: Request) -> str:
             "  /trending — what's hot right now\n"
             "  /script [topic] — generate a video script\n"
             "  /caption [topic] — get captions + hashtags\n\n"
-            "General:\n"
+            "*General:*\n"
             "  /status — Jarvis system status\n"
             "  /chat [message] — chat with Jarvis AI\n\n"
             "Or just type anything to chat with Jarvis!"
@@ -103,6 +109,49 @@ async def _route(text: str, request: Request) -> str:
             "• AI Brain: Online\n"
             "• Telegram Bot: Connected\n"
             "• Content Calendar: Ready"
+        )
+
+    if lower in ("/briefing", "/morning"):
+        return await _fetch_text(
+            request, "/api/briefing/morning?city=London",
+            lambda d: (
+                f"☀️ *Morning Briefing*\n\n"
+                f"{d.get('ai_summary', '')}\n\n"
+                f"📅 *Calendar:* {d.get('calendar', '')}\n\n"
+                f"📧 *Emails:* {d.get('emails', '')}\n\n"
+                f"📞 *Calls:* {d.get('missed_calls', '')}\n\n"
+                f"🎬 *TikTok Today:* {d.get('tiktok_today', '')}"
+            )
+        )
+
+    if lower == "/evening":
+        return await _fetch_text(
+            request, "/api/briefing/evening",
+            lambda d: (
+                f"🌙 *Evening Recap*\n\n"
+                f"📋 {d.get('tasks_summary', '')}\n\n"
+                f"📞 Calls today: {d.get('calls_today', 0)}\n"
+                f"💬 Messages: {d.get('messages_today', 0)}\n"
+                f"📧 Unread: {d.get('unread_emails', 0)}"
+            )
+        )
+
+    if lower == "/emails":
+        return await _fetch_text(
+            request, "/api/email/digest",
+            lambda d: f"📧 *Inbox Digest* ({d.get('count', 0)} emails)\n\n{d.get('digest', d.get('mock_digest', ''))}"
+        )
+
+    if lower == "/calls":
+        return await _fetch_text(
+            request, "/api/phone/missed",
+            lambda d: _format_calls_for_telegram(d)
+        )
+
+    if lower == "/events":
+        return await _fetch_text(
+            request, "/api/calendar/today",
+            lambda d: _format_events_for_telegram(d)
         )
 
     if lower.startswith("/chat "):
@@ -212,6 +261,42 @@ async def _tiktok_script(topic: str, request: Request) -> str:
         )
     except Exception as e:
         return f"Could not generate script: {e}"
+
+
+async def _fetch_text(request: Request, path: str, formatter) -> str:
+    try:
+        base = str(request.base_url).rstrip("/")
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.get(f"{base}{path}")
+            data = resp.json()
+        if isinstance(data, dict) and data.get("detail"):
+            return f"⚠️ {data['detail']}"
+        return formatter(data)
+    except Exception as e:
+        return f"Could not fetch: {e}"
+
+
+def _format_calls_for_telegram(d: dict) -> str:
+    missed = d.get("missed", [])
+    if not missed:
+        return "📞 No missed calls, sir."
+    msg = f"📵 *{len(missed)} Missed Calls:*\n\n"
+    for c in missed[:5]:
+        msg += f"• From `{c.get('from', '?')}`\n  {c.get('started', '?')}\n\n"
+    return msg
+
+
+def _format_events_for_telegram(d: dict) -> str:
+    events = d.get("events", [])
+    if not events:
+        return f"📅 No events today ({d.get('date', '')})."
+    msg = f"📅 *Today — {d.get('date', '')}*\n{len(events)} event(s):\n\n"
+    for e in events[:10]:
+        start = (e.get("start") or "")[:16]
+        msg += f"• {start} — {e.get('title', '')}\n"
+        if e.get("location"):
+            msg += f"  📍 {e['location']}\n"
+    return msg
 
 
 async def _tiktok_caption(topic: str, request: Request) -> str:

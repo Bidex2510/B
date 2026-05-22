@@ -55,6 +55,70 @@
             </div>
         </div>
 
+        <!-- LIFE MANAGER - Daily Briefing Panel -->
+        <div class="tiktok-panel" style="border-color: #00ff88;">
+            <h3 style="color: #00ff88;">🎩 Life Manager — Brief Me Sir</h3>
+            <div class="tiktok-tabs">
+                <button class="tab-btn active" onclick="setLifeTab('briefing', this)">☀️ Morning</button>
+                <button class="tab-btn" onclick="setLifeTab('emails', this)">📧 Emails</button>
+                <button class="tab-btn" onclick="setLifeTab('calls', this)">📞 Calls</button>
+                <button class="tab-btn" onclick="setLifeTab('calendar', this)">📅 Calendar</button>
+                <button class="tab-btn" onclick="setLifeTab('publish', this)">🎬 TikTok Post</button>
+            </div>
+
+            <div id="life-briefing" class="life-tab-content">
+                <div class="tiktok-controls">
+                    <input type="text" id="briefing-city" placeholder="Your city (e.g. London)" value="London">
+                    <button class="tiktok-btn" style="background:#00ff88;color:#000" onclick="getMorningBriefing()">Morning Briefing</button>
+                    <button class="tiktok-btn secondary" style="border-color:#00ff88;color:#00ff88" onclick="getEveningBriefing()">Evening Recap</button>
+                </div>
+            </div>
+
+            <div id="life-emails" class="life-tab-content" style="display:none">
+                <div class="tiktok-controls">
+                    <button class="tiktok-btn" style="background:#00ff88;color:#000" onclick="getEmailDigest()">AI Inbox Digest</button>
+                    <button class="tiktok-btn secondary" style="border-color:#00ff88;color:#00ff88" onclick="getPriorityEmails()">Priority Emails</button>
+                    <button class="tiktok-btn secondary" style="border-color:#00ff88;color:#00ff88" onclick="getUnreadCount()">Unread Count</button>
+                </div>
+            </div>
+
+            <div id="life-calls" class="life-tab-content" style="display:none">
+                <div class="tiktok-controls">
+                    <button class="tiktok-btn" style="background:#00ff88;color:#000" onclick="getCallLogs()">Recent Calls</button>
+                    <button class="tiktok-btn secondary" style="border-color:#00ff88;color:#00ff88" onclick="getMissedCalls()">Missed Calls</button>
+                    <button class="tiktok-btn secondary" style="border-color:#00ff88;color:#00ff88" onclick="getSmsLogs()">SMS Log</button>
+                </div>
+                <div class="tiktok-controls" style="margin-top:8px">
+                    <input type="text" id="sms-to" placeholder="+14155551234">
+                    <input type="text" id="sms-body" placeholder="Message">
+                    <button class="tiktok-btn" style="background:#00ff88;color:#000" onclick="sendSms()">Send SMS</button>
+                </div>
+            </div>
+
+            <div id="life-calendar" class="life-tab-content" style="display:none">
+                <div class="tiktok-controls">
+                    <button class="tiktok-btn" style="background:#00ff88;color:#000" onclick="getTodayEvents()">Today's Events</button>
+                    <button class="tiktok-btn secondary" style="border-color:#00ff88;color:#00ff88" onclick="getUpcomingEvents()">Next 7 Days</button>
+                </div>
+            </div>
+
+            <div id="life-publish" class="life-tab-content" style="display:none">
+                <div class="tiktok-controls">
+                    <button class="tiktok-btn" style="background:#00ff88;color:#000" onclick="getTikTokAuthUrl()">Connect TikTok (OAuth)</button>
+                    <button class="tiktok-btn secondary" style="border-color:#00ff88;color:#00ff88" onclick="getTikTokConnectionStatus()">Check Status</button>
+                </div>
+                <div class="tiktok-controls" style="margin-top:8px">
+                    <input type="text" id="publish-url" placeholder="Public video URL (mp4)">
+                    <input type="text" id="publish-caption" placeholder="Caption">
+                    <button class="tiktok-btn" style="background:#00ff88;color:#000" onclick="publishTikTok()">Upload Video</button>
+                </div>
+            </div>
+
+            <div id="life-output" style="background:var(--bg-input);border:1px solid var(--border);border-radius:8px;padding:15px;min-height:120px;font-size:0.85rem;line-height:1.7;color:var(--text);white-space:pre-wrap;max-height:400px;overflow-y:auto;margin-top:15px;">
+                <p style="color:var(--text-dim);font-style:italic;text-align:center;padding:20px 0">Tap a button to start, sir.</p>
+            </div>
+        </div>
+
         <!-- TikTok Content Manager Panel -->
         <div class="tiktok-panel">
             <h3>🎵 TikTok Content Manager</h3>

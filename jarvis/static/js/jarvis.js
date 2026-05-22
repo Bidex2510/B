@@ -504,6 +504,271 @@ function escapeJs(str) {
     return str.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"');
 }
 
+// ==================== LIFE MANAGER ====================
+
+function setLifeTab(tab, btn) {
+    document.querySelectorAll('.tiktok-panel')[0].querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+    document.querySelectorAll('.life-tab-content').forEach(el => el.style.display = 'none');
+    const tabEl = document.getElementById(`life-${tab}`);
+    if (tabEl) tabEl.style.display = 'block';
+    setLifeOutput('Tap a button to start, sir.');
+}
+
+function setLifeOutput(text) {
+    document.getElementById('life-output').textContent = text;
+}
+
+function setLifeLoading(msg) {
+    document.getElementById('life-output').innerHTML =
+        `<p style="color:var(--text-dim);font-style:italic;text-align:center;padding:20px 0">${escapeHtml(msg)}</p>`;
+}
+
+async function getMorningBriefing() {
+    const city = document.getElementById('briefing-city').value.trim() || 'London';
+    setLifeLoading('Compiling your morning briefing, sir...');
+    try {
+        const resp = await fetch(`${API}/api/briefing/morning?city=${encodeURIComponent(city)}`);
+        const d = await resp.json();
+        let text = '';
+        if (d.ai_summary) text += `📰 ${d.ai_summary}\n\n━━━━━━━━━━━━━\n\n`;
+        text += `${d.greeting}\n${d.date}\n\n`;
+        text += `☀️ WEATHER\n${d.weather}\n\n`;
+        text += `📅 CALENDAR\n${d.calendar}\n\n`;
+        text += `📧 EMAILS\n${d.emails}\n\n`;
+        text += `📞 CALLS\n${d.missed_calls}\n\n`;
+        text += `🎬 TIKTOK TODAY\n${d.tiktok_today}\n\n`;
+        if (d.news_headlines && d.news_headlines.length) {
+            text += `📰 NEWS\n${d.news_headlines.map(h => '  • ' + h).join('\n')}`;
+        }
+        setLifeOutput(text);
+    } catch (e) {
+        setLifeOutput('Failed to load briefing: ' + e);
+    }
+}
+
+async function getEveningBriefing() {
+    setLifeLoading('Compiling evening recap...');
+    try {
+        const resp = await fetch(`${API}/api/briefing/evening`);
+        const d = await resp.json();
+        const text = `${d.greeting}\n${d.date}\n\n` +
+            `📋 TASKS:\n${d.tasks_summary}\n\n` +
+            `📞 Calls today: ${d.calls_today}\n` +
+            `💬 Messages today: ${d.messages_today}\n` +
+            `📧 Unread emails: ${d.unread_emails}\n\n` +
+            `💡 ${d.tomorrow_prep}`;
+        setLifeOutput(text);
+    } catch (e) {
+        setLifeOutput('Failed to load recap: ' + e);
+    }
+}
+
+async function getEmailDigest() {
+    setLifeLoading('Reading your inbox...');
+    try {
+        const resp = await fetch(`${API}/api/email/digest`);
+        const d = await resp.json();
+        if (d.status === 'config_needed') {
+            setLifeOutput(`⚠️ ${d.message}\n\nSample: ${d.mock_digest || ''}`);
+        } else {
+            setLifeOutput(`📧 INBOX DIGEST (${d.count || 0} emails)\n\n${d.digest || ''}`);
+        }
+    } catch (e) {
+        setLifeOutput('Failed: ' + e);
+    }
+}
+
+async function getPriorityEmails() {
+    setLifeLoading('Flagging urgent emails...');
+    try {
+        const resp = await fetch(`${API}/api/email/priority`);
+        const d = await resp.json();
+        const emails = d.priority || [];
+        if (!emails.length) {
+            setLifeOutput('No urgent emails right now, sir.');
+            return;
+        }
+        let text = `🚨 ${emails.length} PRIORITY EMAILS:\n\n`;
+        emails.forEach((e, i) => {
+            text += `${i+1}. From: ${e.from || '?'}\n   Subject: ${e.subject || '?'}\n   ${e.snippet || ''}\n\n`;
+        });
+        setLifeOutput(text);
+    } catch (e) {
+        setLifeOutput('Failed: ' + e);
+    }
+}
+
+async function getUnreadCount() {
+    try {
+        const resp = await fetch(`${API}/api/email/unread`);
+        const d = await resp.json();
+        setLifeOutput(`📧 You have ${d.unread || 0} unread email(s).`);
+    } catch (e) {
+        setLifeOutput('Failed: ' + e);
+    }
+}
+
+async function getCallLogs() {
+    setLifeLoading('Loading call history...');
+    try {
+        const resp = await fetch(`${API}/api/phone/calls?limit=10`);
+        const d = await resp.json();
+        if (d.detail) { setLifeOutput('⚠️ ' + d.detail); return; }
+        const calls = d.calls || [];
+        if (!calls.length) { setLifeOutput('No call history.'); return; }
+        let text = `📞 RECENT CALLS (${calls.length})\n\n`;
+        calls.forEach(c => {
+            text += `${c.direction || '?'}: ${c.from} → ${c.to}\n  Status: ${c.status}, Duration: ${c.duration_sec || 0}s\n  ${c.started || ''}\n\n`;
+        });
+        setLifeOutput(text);
+    } catch (e) {
+        setLifeOutput('Failed: ' + e);
+    }
+}
+
+async function getMissedCalls() {
+    setLifeLoading('Checking missed calls...');
+    try {
+        const resp = await fetch(`${API}/api/phone/missed`);
+        const d = await resp.json();
+        if (d.detail) { setLifeOutput('⚠️ ' + d.detail); return; }
+        const missed = d.missed || [];
+        if (!missed.length) { setLifeOutput('No missed calls, sir.'); return; }
+        let text = `📵 ${missed.length} MISSED CALLS\n\n`;
+        missed.forEach(c => { text += `From: ${c.from}\n  ${c.started}\n\n`; });
+        setLifeOutput(text);
+    } catch (e) {
+        setLifeOutput('Failed: ' + e);
+    }
+}
+
+async function getSmsLogs() {
+    setLifeLoading('Loading SMS log...');
+    try {
+        const resp = await fetch(`${API}/api/phone/messages?limit=10`);
+        const d = await resp.json();
+        if (d.detail) { setLifeOutput('⚠️ ' + d.detail); return; }
+        const msgs = d.messages || [];
+        if (!msgs.length) { setLifeOutput('No messages.'); return; }
+        let text = `💬 RECENT SMS\n\n`;
+        msgs.forEach(m => {
+            text += `${m.direction || '?'}: ${m.from} → ${m.to}\n  "${m.body}"\n  ${m.sent || ''}\n\n`;
+        });
+        setLifeOutput(text);
+    } catch (e) {
+        setLifeOutput('Failed: ' + e);
+    }
+}
+
+async function sendSms() {
+    const to = document.getElementById('sms-to').value.trim();
+    const body = document.getElementById('sms-body').value.trim();
+    if (!to || !body) { setLifeOutput('Both number and message required, sir.'); return; }
+    setLifeLoading('Sending SMS...');
+    try {
+        const resp = await fetch(`${API}/api/phone/sms`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({to, body}),
+        });
+        const d = await resp.json();
+        if (d.detail) { setLifeOutput('⚠️ ' + d.detail); return; }
+        setLifeOutput(`✅ ${d.message || 'SMS sent.'}\nSID: ${d.sid}\nStatus: ${d.status}`);
+        document.getElementById('sms-body').value = '';
+    } catch (e) {
+        setLifeOutput('Failed: ' + e);
+    }
+}
+
+async function getTodayEvents() {
+    setLifeLoading("Loading today's calendar...");
+    try {
+        const resp = await fetch(`${API}/api/calendar/today`);
+        const d = await resp.json();
+        if (d.detail) { setLifeOutput('⚠️ ' + d.detail); return; }
+        const events = d.events || [];
+        if (!events.length) { setLifeOutput(`No events scheduled for ${d.date}.`); return; }
+        let text = `📅 TODAY — ${d.date}\n${events.length} event(s)\n\n`;
+        events.forEach(e => {
+            text += `⏰ ${(e.start || '').substring(0, 16)}\n  ${e.title}\n`;
+            if (e.location) text += `  📍 ${e.location}\n`;
+            text += '\n';
+        });
+        setLifeOutput(text);
+    } catch (e) {
+        setLifeOutput('Failed: ' + e);
+    }
+}
+
+async function getUpcomingEvents() {
+    setLifeLoading('Loading next 7 days...');
+    try {
+        const resp = await fetch(`${API}/api/calendar/upcoming?days=7`);
+        const d = await resp.json();
+        if (d.detail) { setLifeOutput('⚠️ ' + d.detail); return; }
+        const events = d.events || [];
+        if (!events.length) { setLifeOutput('No upcoming events.'); return; }
+        let text = `📅 NEXT 7 DAYS\n${events.length} event(s)\n\n`;
+        events.forEach(e => {
+            text += `${(e.start || '').substring(0, 16)} — ${e.title}\n`;
+        });
+        setLifeOutput(text);
+    } catch (e) {
+        setLifeOutput('Failed: ' + e);
+    }
+}
+
+async function getTikTokAuthUrl() {
+    try {
+        const resp = await fetch(`${API}/api/tiktok-publish/oauth-url`);
+        const d = await resp.json();
+        if (d.error) { setLifeOutput('⚠️ ' + d.error + '\n\nSet TIKTOK_CLIENT_KEY in .env'); return; }
+        setLifeOutput(
+            `🔗 Open this URL to connect TikTok:\n\n${d.auth_url}\n\n` +
+            `${d.instructions}\n\n` +
+            `(Copy/paste into a new browser tab and approve)`
+        );
+        window.open(d.auth_url, '_blank');
+    } catch (e) {
+        setLifeOutput('Failed: ' + e);
+    }
+}
+
+async function getTikTokConnectionStatus() {
+    setLifeLoading('Checking TikTok connection...');
+    try {
+        const resp = await fetch(`${API}/api/tiktok-publish/status`);
+        const d = await resp.json();
+        if (d.connected) {
+            setLifeOutput(`✅ Connected to TikTok as ${d.display_name || 'your account'}.\n\nReady to publish videos.`);
+        } else {
+            setLifeOutput(`❌ Not connected.\n${d.message || ''}`);
+        }
+    } catch (e) {
+        setLifeOutput('Failed: ' + e);
+    }
+}
+
+async function publishTikTok() {
+    const video_url = document.getElementById('publish-url').value.trim();
+    const caption = document.getElementById('publish-caption').value.trim();
+    if (!video_url) { setLifeOutput('Video URL required, sir.'); return; }
+    setLifeLoading('Uploading to TikTok...');
+    try {
+        const resp = await fetch(`${API}/api/tiktok-publish/upload`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({video_url, caption, privacy: 'SELF_ONLY'}),
+        });
+        const d = await resp.json();
+        if (d.detail) { setLifeOutput('⚠️ ' + d.detail); return; }
+        setLifeOutput(`✅ ${d.message}\nPublish ID: ${d.publish_id}\n\nPrivacy is SELF_ONLY by default — change in the dashboard once verified.`);
+    } catch (e) {
+        setLifeOutput('Failed: ' + e);
+    }
+}
+
 // === INIT ===
 document.addEventListener('DOMContentLoaded', () => {
     loadTasks();
