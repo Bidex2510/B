@@ -12,10 +12,18 @@ Python trading system for small-cap U.S. equities. Currently implements:
   R:R-based target selection, dynamic position sizing from account risk %,
   and a daily risk governor (loss limit, consecutive-loss lockout, max
   trades/day, cooldown between trades).
+- **Backtester** (`trading/backtest/`) — single-symbol, single-day, bar-by-bar
+  simulation of the signal + risk engines against historical candles (no
+  lookahead), with simulated limit-order fills, stop/target exits, and
+  performance stats (win rate, avg win/loss, expectancy, profit factor, max
+  drawdown). See `trading/backtest/README.md` — multi-day/multi-symbol
+  orchestration and out-of-sample validation aren't built yet.
+- **Manual watchlist** (`trading/watchlist.py`) — add/remove tickers you want
+  tracked regardless of whether they pass the scanner's filters.
 
 Not built yet: catalyst filter, market-regime filter, trade-quality scoring,
-order manager, broker execution, trade journal, backtester, dashboard — see
-the roadmap at the bottom.
+order manager, broker execution, trade journal, dashboard — see the roadmap
+at the bottom.
 
 ## Setup
 
@@ -61,21 +69,33 @@ scanner rather than assumed to pass.
 ## Run
 
 ```bash
-python -m trading.cli
+python -m trading.cli scan               # scanner watchlist + your manual watchlist
+python -m trading.cli watch add ABCD     # add a ticker to your manual watchlist
+python -m trading.cli watch remove ABCD
+python -m trading.cli watch list
 ```
 
-Prints the current watchlist:
+`scan` prints the scanner's output followed by your manually-watched tickers
+(with live prices, if Alpaca credentials are configured):
 
 ```
+SCANNER WATCHLIST
 Ticker    Price   Gap %    RVOL  Status
 --------------------------------------------
 ABCD       4.82   38.0%     8.4x  WATCH
+
+MANUALLY WATCHED
+Ticker    Price
+----------------
+XYZ         7.31
 ```
+
+The manual watchlist is stored locally in `trading/data/manual_watchlist.json`
+(gitignored — it's your personal state, not shared through the repo).
 
 ## Tests
 
-No live API calls — filters and the scanner pipeline are tested against
-fakes/stubs.
+No live API calls anywhere — everything is tested against fakes/stubs/fixtures.
 
 ```bash
 pytest tests/
@@ -108,19 +128,26 @@ trading/
     reward.py                 # target selection, R:R computation/threshold
     sizing.py                 # position sizing from account risk %
     governor.py                # daily loss limit, consecutive-loss lockout, trade cap, cooldown
-  cli.py                   # prints the watchlist
+  backtest/
+    models.py                # DayLevels, BacktestConfig, Trade
+    simulator.py               # bar-by-bar single-symbol/day simulation, no lookahead
+    stats.py                   # win rate, avg win/loss, expectancy, profit factor, max drawdown
+  watchlist.py             # manually curated tickers (add/remove/list), local JSON state
+  cli.py                   # scan + watch add/remove/list
 ```
 
 ## Roadmap
 
-Scanner, signal engine, and risk engine are built (see above). Planned next
-stages, in order:
+Scanner, signal engine, risk engine, a single-symbol/day backtester, and a
+manual watchlist are built (see above). Planned next stages, in order:
 
-1. **Backtester** — run the signal + risk engine against historical data
-   before any live/paper data is involved. Measure win rate, avg win/loss,
-   expectancy, profit factor, max drawdown, R:R, performance by time-of-day
-   and by opening-range window, and validate on out-of-sample data before
-   trusting any result.
+1. **Multi-day, multi-symbol backtest orchestration** — fetch historical bars
+   per symbol per day from Alpaca (or another historical data source), build
+   real `DayLevels` (premarket high/low, prior-day high/low, equal
+   highs/lows) instead of hand-built fixtures, loop `run_day` across a date
+   range and across symbols, and validate on out-of-sample data (don't trust
+   a result that only holds on the period it was tuned on) — see
+   `trading/backtest/README.md`.
 2. **Catalyst / market-regime / quality-scoring layers** — these need a
    news/fundamentals feed and SPY/QQQ/IWM data that aren't wired up yet.
    Only add once the core signal+risk pipeline has backtested edge; don't
