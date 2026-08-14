@@ -1,0 +1,209 @@
+//@version=6
+indicator("Sniper Open - Complete Signal", overlay=true, max_lines_count=500, max_labels_count=500)
+
+candle1_high = high[2]
+candle1_low = low[2]
+candle3_high = high
+candle3_low = low
+candle3_open = open
+candle3_close = close
+
+bullish_fvg = candle1_high < candle3_low
+bearish_fvg = candle1_low > candle3_high
+
+swing_high = high[2] > high[4] and high[2] > high[3] and high[2] > high[1] and high[2] > high[0]
+swing_low = low[2] < low[4] and low[2] < low[3] and low[2] < low[1] and low[2] < low[0]
+
+var array<float> swingHighPrices = array.new<float>()
+var array<int> swingHighTimes = array.new<int>()
+var array<float> swingLowPrices = array.new<float>()
+var array<int> swingLowTimes = array.new<int>()
+
+if swing_high and barstate.isconfirmed
+    array.push(swingHighPrices, high[2])
+    array.push(swingHighTimes, time[2])
+if swing_low and barstate.isconfirmed
+    array.push(swingLowPrices, low[2])
+    array.push(swingLowTimes, time[2])
+
+if array.size(swingHighTimes) > 0
+    for i = array.size(swingHighTimes) - 1 to 0
+        if time - array.get(swingHighTimes, i) > 24 * 60 * 60 * 1000
+            array.remove(swingHighTimes, i)
+            array.remove(swingHighPrices, i)
+if array.size(swingLowTimes) > 0
+    for i = array.size(swingLowTimes) - 1 to 0
+        if time - array.get(swingLowTimes, i) > 24 * 60 * 60 * 1000
+            array.remove(swingLowTimes, i)
+            array.remove(swingLowPrices, i)
+
+tolerance = 5.0
+zone_proximity = 10.0
+stop_pts = 20.0
+min_target_dist = 30.0
+
+var array<float> confirmedHighZones = array.new<float>()
+var array<int> confirmedHighZoneTimes = array.new<int>()
+var array<float> confirmedLowZones = array.new<float>()
+var array<int> confirmedLowZoneTimes = array.new<int>()
+
+nearestEqualHigh(referencePrice) =>
+    result = float(na)
+    closestDistance = float(na)
+    if array.size(swingHighPrices) > 1
+        for i = 0 to array.size(swingHighPrices) - 1
+            count = 0
+            for j = 0 to array.size(swingHighPrices) - 1
+                if math.abs(array.get(swingHighPrices, i) - array.get(swingHighPrices, j)) <= tolerance
+                    count += 1
+            if count >= 2
+                d = math.abs(array.get(swingHighPrices, i) - referencePrice)
+                if na(closestDistance) or d < closestDistance
+                    closestDistance := d
+                    result := array.get(swingHighPrices, i)
+    result
+
+nearestEqualLow(referencePrice) =>
+    result = float(na)
+    closestDistance = float(na)
+    if array.size(swingLowPrices) > 1
+        for i = 0 to array.size(swingLowPrices) - 1
+            count = 0
+            for j = 0 to array.size(swingLowPrices) - 1
+                if math.abs(array.get(swingLowPrices, i) - array.get(swingLowPrices, j)) <= tolerance
+                    count += 1
+            if count >= 2
+                d = math.abs(array.get(swingLowPrices, i) - referencePrice)
+                if na(closestDistance) or d < closestDistance
+                    closestDistance := d
+                    result := array.get(swingLowPrices, i)
+    result
+
+targetAboveEntry(entryPrice, minDist) =>
+    result = float(na)
+    if array.size(confirmedHighZones) > 0
+        for i = 0 to array.size(confirmedHighZones) - 1
+            price = array.get(confirmedHighZones, i)
+            if price > entryPrice + minDist
+                if na(result) or price < result
+                    result := price
+    result
+
+targetBelowEntry(entryPrice, minDist) =>
+    result = float(na)
+    if array.size(confirmedLowZones) > 0
+        for i = 0 to array.size(confirmedLowZones) - 1
+            price = array.get(confirmedLowZones, i)
+            if price < entryPrice - minDist
+                if na(result) or price > result
+                    result := price
+    result
+
+equalHighZone = nearestEqualHigh(candle1_low)
+equalLowZone = nearestEqualLow(candle1_high)
+
+if not na(equalHighZone) and array.indexof(confirmedHighZones, equalHighZone) == -1
+    array.push(confirmedHighZones, equalHighZone)
+    array.push(confirmedHighZoneTimes, time)
+if not na(equalLowZone) and array.indexof(confirmedLowZones, equalLowZone) == -1
+    array.push(confirmedLowZones, equalLowZone)
+    array.push(confirmedLowZoneTimes, time)
+
+if array.size(confirmedHighZoneTimes) > 0
+    for i = array.size(confirmedHighZoneTimes) - 1 to 0
+        if time - array.get(confirmedHighZoneTimes, i) > 24 * 60 * 60 * 1000
+            array.remove(confirmedHighZoneTimes, i)
+            array.remove(confirmedHighZones, i)
+if array.size(confirmedLowZoneTimes) > 0
+    for i = array.size(confirmedLowZoneTimes) - 1 to 0
+        if time - array.get(confirmedLowZoneTimes, i) > 24 * 60 * 60 * 1000
+            array.remove(confirmedLowZoneTimes, i)
+            array.remove(confirmedLowZones, i)
+
+in_window = hour(time, "America/New_York") == 9 and minute(time, "America/New_York") >= 30 and minute(time, "America/New_York") < 45
+
+bullish_momentum = candle3_close > candle3_open
+bearish_momentum = candle3_close < candle3_open
+
+nearestConfirmedLow(referencePrice) =>
+    result = float(na)
+    closestDistance = float(na)
+    if array.size(confirmedLowZones) > 0
+        for i = 0 to array.size(confirmedLowZones) - 1
+            d = math.abs(array.get(confirmedLowZones, i) - referencePrice)
+            if na(closestDistance) or d < closestDistance
+                closestDistance := d
+                result := array.get(confirmedLowZones, i)
+    result
+
+nearestConfirmedHigh(referencePrice) =>
+    result = float(na)
+    closestDistance = float(na)
+    if array.size(confirmedHighZones) > 0
+        for i = 0 to array.size(confirmedHighZones) - 1
+            d = math.abs(array.get(confirmedHighZones, i) - referencePrice)
+            if na(closestDistance) or d < closestDistance
+                closestDistance := d
+                result := array.get(confirmedHighZones, i)
+    result
+
+confirmedLowMatch = nearestConfirmedLow(candle1_high)
+confirmedHighMatch = nearestConfirmedHigh(candle1_low)
+
+// ===== ORDER BLOCK DETECTION =====
+var array<int> bullishOBTime = array.new<int>()
+var array<int> bearishOBTime = array.new<int>()
+
+if close[3] < open[3] and close[2] > open[2] and close[1] > open[1] and close > open and barstate.isconfirmed
+    array.push(bullishOBTime, time[3])
+if close[3] > open[3] and close[2] < open[2] and close[1] < open[1] and close < open and barstate.isconfirmed
+    array.push(bearishOBTime, time[3])
+
+if array.size(bullishOBTime) > 0
+    for i = array.size(bullishOBTime) - 1 to 0
+        if time - array.get(bullishOBTime, i) > 24 * 60 * 60 * 1000
+            array.remove(bullishOBTime, i)
+if array.size(bearishOBTime) > 0
+    for i = array.size(bearishOBTime) - 1 to 0
+        if time - array.get(bearishOBTime, i) > 24 * 60 * 60 * 1000
+            array.remove(bearishOBTime, i)
+
+hasBullishOB = array.size(bullishOBTime) > 0
+hasBearishOB = array.size(bearishOBTime) > 0
+
+// ===== TIER 1: WATCHING (unconfirmed, informational only) =====
+watching_bullish = bullish_fvg and bullish_momentum and in_window and not na(confirmedLowMatch) and math.abs(confirmedLowMatch - candle1_high) <= zone_proximity and hasBullishOB and not barstate.isconfirmed
+watching_bearish = bearish_fvg and bearish_momentum and in_window and not na(confirmedHighMatch) and math.abs(confirmedHighMatch - candle1_low) <= zone_proximity and hasBearishOB and not barstate.isconfirmed
+
+plotshape(watching_bullish, style=shape.circle, location=location.belowbar, color=color.new(color.lime, 40), size=size.tiny, title="WATCHING - Bullish (unconfirmed)")
+plotshape(watching_bearish, style=shape.circle, location=location.abovebar, color=color.new(color.red, 40), size=size.tiny, title="WATCHING - Bearish (unconfirmed)")
+
+// ===== TIER 2: CONFIRMED SIGNAL =====
+bullish_signal = bullish_fvg and bullish_momentum and in_window and not na(confirmedLowMatch) and math.abs(confirmedLowMatch - candle1_high) <= zone_proximity and hasBullishOB and barstate.isconfirmed
+bearish_signal = bearish_fvg and bearish_momentum and in_window and not na(confirmedHighMatch) and math.abs(confirmedHighMatch - candle1_low) <= zone_proximity and hasBearishOB and barstate.isconfirmed
+
+plotshape(bullish_signal, style=shape.triangleup, location=location.belowbar, color=color.lime, size=size.normal, title="CONFIRMED - Bullish Signal")
+plotshape(bearish_signal, style=shape.triangledown, location=location.abovebar, color=color.red, size=size.normal, title="CONFIRMED - Bearish Signal")
+
+alertcondition(bullish_signal, title="Bullish Sniper Signal (Confirmed)", message="BULLISH setup on NQ - place LIMIT BUY at entry price shown, cancel if not filled within 15 min")
+alertcondition(bearish_signal, title="Bearish Sniper Signal (Confirmed)", message="BEARISH setup on NQ - place LIMIT SELL at entry price shown, cancel if not filled within 15 min")
+
+if bullish_signal
+    entryPrice = candle3_low
+    stopPrice = entryPrice - stop_pts
+    targetPrice = targetAboveEntry(entryPrice, min_target_dist)
+    line.new(bar_index, entryPrice, bar_index + 20, entryPrice, color=color.white, width=1, style=line.style_dashed)
+    line.new(bar_index, stopPrice, bar_index + 20, stopPrice, color=color.red, width=1, style=line.style_dashed)
+    if not na(targetPrice)
+        line.new(bar_index, targetPrice, bar_index + 20, targetPrice, color=color.green, width=1, style=line.style_dashed)
+    label.new(bar_index, entryPrice, "LIMIT BUY: " + str.tostring(entryPrice, "#.##") + "\nSTOP: " + str.tostring(stopPrice, "#.##") + "\nTARGET: " + (na(targetPrice) ? "none found" : str.tostring(targetPrice, "#.##")) + "\n(cancel if unfilled in 15min)", style=label.style_label_right, color=color.new(color.blue, 80), textcolor=color.white, size=size.small)
+
+if bearish_signal
+    entryPrice = candle3_high
+    stopPrice = entryPrice + stop_pts
+    targetPrice = targetBelowEntry(entryPrice, min_target_dist)
+    line.new(bar_index, entryPrice, bar_index + 20, entryPrice, color=color.white, width=1, style=line.style_dashed)
+    line.new(bar_index, stopPrice, bar_index + 20, stopPrice, color=color.red, width=1, style=line.style_dashed)
+    if not na(targetPrice)
+        line.new(bar_index, targetPrice, bar_index + 20, targetPrice, color=color.green, width=1, style=line.style_dashed)
+    label.new(bar_index, entryPrice, "LIMIT SELL: " + str.tostring(entryPrice, "#.##") + "\nSTOP: " + str.tostring(stopPrice, "#.##") + "\nTARGET: " + (na(targetPrice) ? "none found" : str.tostring(targetPrice, "#.##")) + "\n(cancel if unfilled in 15min)", style=label.style_label_right, color=color.new(color.red, 80), textcolor=color.white, size=size.small)

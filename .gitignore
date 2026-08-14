@@ -6,3 +6,4 @@ __pycache__/
 .jarvis_flashcards.json
 .jarvis_schedule.json
 .jarvis_budget.json
+trading/data/manual_watchlist.json
