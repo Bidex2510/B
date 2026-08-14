@@ -1,0 +1,8 @@
+# Small-cap trading system
+# Install: pip install -r trading/requirements.txt
+
+alpaca-py==0.33.1
+python-dotenv==1.0.1
+
+# Dev / test
+pytest==8.3.3
