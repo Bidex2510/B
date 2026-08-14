@@ -12,12 +12,17 @@ Python trading system for small-cap U.S. equities. Currently implements:
   R:R-based target selection, dynamic position sizing from account risk %,
   and a daily risk governor (loss limit, consecutive-loss lockout, max
   trades/day, cooldown between trades).
-- **Backtester** (`trading/backtest/`) — single-symbol, single-day, bar-by-bar
-  simulation of the signal + risk engines against historical candles (no
-  lookahead), with simulated limit-order fills, stop/target exits, and
-  performance stats (win rate, avg win/loss, expectancy, profit factor, max
-  drawdown). See `trading/backtest/README.md` — multi-day/multi-symbol
-  orchestration and out-of-sample validation aren't built yet.
+- **Backtester** (`trading/backtest/`) — bar-by-bar simulation of the signal +
+  risk engines against historical candles (no lookahead), with simulated
+  limit-order fills, stop/target exits, and performance stats (win rate, avg
+  win/loss, expectancy, profit factor, max drawdown). Runs across a
+  chronological range of days for one symbol, compounding account equity day
+  to day while resetting the risk governor each session, with real
+  `DayLevels` built from premarket/prior-day candles and chronological
+  train/validate/test splitting. See `trading/backtest/README.md` —
+  multi-symbol looping and an out-of-sample validation runner aren't built
+  yet (the pieces are there; wiring them together per-symbol is on you for
+  now).
 - **Manual watchlist** (`trading/watchlist.py`) — add/remove tickers you want
   tracked regardless of whether they pass the scanner's filters.
 
@@ -132,22 +137,24 @@ trading/
     models.py                # DayLevels, BacktestConfig, Trade
     simulator.py               # bar-by-bar single-symbol/day simulation, no lookahead
     stats.py                   # win rate, avg win/loss, expectancy, profit factor, max drawdown
+    data_source.py              # HistoricalDataSource + AlpacaHistoricalDataSource
+    levels_builder.py            # DayLevels from real premarket/prior-day candles
+    orchestrator.py               # run_day across a date range, compounding equity
+    period_split.py                # chronological train/validate/test splitting
   watchlist.py             # manually curated tickers (add/remove/list), local JSON state
   cli.py                   # scan + watch add/remove/list
 ```
 
 ## Roadmap
 
-Scanner, signal engine, risk engine, a single-symbol/day backtester, and a
-manual watchlist are built (see above). Planned next stages, in order:
+Scanner, signal engine, risk engine, a multi-day backtester (single symbol
+per run), and a manual watchlist are built (see above). Planned next stages,
+in order:
 
-1. **Multi-day, multi-symbol backtest orchestration** — fetch historical bars
-   per symbol per day from Alpaca (or another historical data source), build
-   real `DayLevels` (premarket high/low, prior-day high/low, equal
-   highs/lows) instead of hand-built fixtures, loop `run_day` across a date
-   range and across symbols, and validate on out-of-sample data (don't trust
-   a result that only holds on the period it was tuned on) — see
-   `trading/backtest/README.md`.
+1. **Multi-symbol backtest loop + out-of-sample validation runner** — loop
+   `run_backtest` across a watchlist and aggregate results; actually run the
+   train/validate/test split through the backtester and compare results
+   instead of eyeballing it manually. See `trading/backtest/README.md`.
 2. **Catalyst / market-regime / quality-scoring layers** — these need a
    news/fundamentals feed and SPY/QQQ/IWM data that aren't wired up yet.
    Only add once the core signal+risk pipeline has backtested edge; don't

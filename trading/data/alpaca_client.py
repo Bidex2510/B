@@ -14,6 +14,8 @@ from datetime import datetime, timedelta
 from typing import List
 from zoneinfo import ZoneInfo
 
+from trading.signals.models import Candle
+
 NY_TZ = ZoneInfo("America/New_York")
 
 
@@ -107,3 +109,14 @@ class AlpacaClient:
 
         trades = self._data.get_stock_latest_trade(StockLatestTradeRequest(symbol_or_symbols=symbol))
         return float(trades[symbol].price)
+
+    def get_minute_bars(self, symbol: str, start: datetime, end: datetime) -> List[Candle]:
+        """Historical 1-minute bars for an arbitrary window, used by the backtester."""
+        from alpaca.data.requests import StockBarsRequest
+        from alpaca.data.timeframe import TimeFrame
+
+        bars = self._data.get_stock_bars(StockBarsRequest(symbol_or_symbols=symbol, timeframe=TimeFrame.Minute, start=start, end=end))
+        return [
+            Candle(time=bar.timestamp.astimezone(NY_TZ), open=bar.open, high=bar.high, low=bar.low, close=bar.close, volume=bar.volume)
+            for bar in bars.data.get(symbol, [])
+        ]
