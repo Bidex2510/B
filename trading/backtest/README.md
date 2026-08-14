@@ -55,13 +55,31 @@ your manual watchlist), a trading-day range (`generate_weekdays` or your own
 calendar), an `AlpacaHistoricalDataSource`, and loop `run_backtest` per
 symbol, aggregating with `compute_stats(result.trades)`.
 
+## Multi-symbol + out-of-sample validation
+
+`trading.backtest.portfolio.run_backtest_many(symbols, trading_days, data_source, config)`
+runs `run_backtest` once per symbol and aggregates into a `PortfolioBacktestResult`
+(`.trades`, `.total_pnl`, `.results_by_symbol`). **Each symbol gets its own
+independent equity curve and risk governor**, as if trading it with
+separately allocated capital — this does not model one shared account
+risking capital across concurrently-traded symbols. True portfolio-level
+simulation (one risk governor and equity curve shared across symbols each
+day) needs bar-by-bar interleaving across symbols and isn't built yet.
+
+`trading.backtest.validation.run_out_of_sample_validation(symbols, trading_days, data_source, config, train_pct, validate_pct)`
+splits `trading_days` via `split_trading_days` and runs `run_backtest_many`
+independently on each of the three buckets, returning a `ValidationReport`
+with `PerformanceStats` for train/validate/test. Each split is backtested as
+its own fresh run — the first day of a split has no prior-day level from
+outside that split (nothing carries over the split boundary), so a real
+multi-day strategy naturally trades less on a split's first day than it
+would mid-split.
+
+A strategy that looks strong in `train` and falls apart in `validate`/`test`
+was curve-fit, not unlucky — don't take that result to paper trading.
+
 ## What it does not do yet
 
-- **Multi-symbol loop as a single call.** `run_backtest` takes one symbol;
-  looping over a watchlist and aggregating results is on the caller for now.
-- **Out-of-sample validation runner.** `split_trading_days` gives you the
-  three period buckets; actually running the backtest on each and comparing
-  results is a manual step today.
 - **Slippage/spread modeling.** Fills currently assume the exact limit
   price. Real small-cap execution is worse than this, especially in thin
   names — see `trading/README.md`'s note on paper vs. live execution.
@@ -114,4 +132,20 @@ print(compute_stats(train_result.trades), "final equity:", train_result.final_eq
 # been curve-fit to that period:
 validate_result = run_backtest("ABCD", split.validate, data_source, config)
 print(compute_stats(validate_result.trades))
+```
+
+## Example: multi-symbol + validation report in one call
+
+```python
+from trading.backtest.validation import run_out_of_sample_validation
+
+report = run_out_of_sample_validation(
+    symbols=["ABCD", "EFGH", "IJKL"],
+    trading_days=trading_days,
+    data_source=data_source,
+    config=config,
+)
+print("train:", report.train)
+print("validate:", report.validate)
+print("test:", report.test)
 ```
