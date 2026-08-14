@@ -1,9 +1,21 @@
 # Small-Cap Trading System
 
-Python trading system for small-cap U.S. equities. Currently implements
-**stage 1 of the build: the premarket scanner**. Everything downstream
-(signal engine, risk engine, order manager, live execution) is not built yet
-— see the roadmap at the bottom.
+Python trading system for small-cap U.S. equities. Currently implements:
+
+- **Scanner** (`trading/scanner/`) — filters the tradable universe down to a watchlist.
+- **Signal engine** (`trading/signals/`) — VWAP, opening range, liquidity sweep,
+  and FVG confluence, ported from `indicators/sniper_open_complete_signal.pine`.
+  Deliberately strict: a signal requires momentum + VWAP alignment + an
+  opening-range breakout/breakdown + a liquidity sweep-and-reclaim + an FVG,
+  all in the same direction — fewer, higher-quality setups over more signals.
+- **Risk engine** (`trading/risk/`) — structural stops with an ATR floor,
+  R:R-based target selection, dynamic position sizing from account risk %,
+  and a daily risk governor (loss limit, consecutive-loss lockout, max
+  trades/day, cooldown between trades).
+
+Not built yet: catalyst filter, market-regime filter, trade-quality scoring,
+order manager, broker execution, trade journal, backtester, dashboard — see
+the roadmap at the bottom.
 
 ## Setup
 
@@ -82,30 +94,53 @@ trading/
     models.py              # StockSnapshot, WatchlistEntry
     filters.py              # one pure function per criterion
     scanner.py              # universe -> snapshot -> filter -> watchlist
+  signals/
+    models.py               # Candle, Direction, FvgZone, LiquiditySweep, OpeningRange, TradeSignal
+    vwap.py                 # session VWAP
+    levels.py                # premarket high/low, prior-day high/low, opening range
+    fvg.py                   # fair value gap detection
+    liquidity_sweep.py       # sweep-and-reclaim / sweep-and-reject detection
+    spread.py                 # bid/ask spread filter
+    engine.py                 # combines the above into a TradeSignal
+  risk/
+    models.py               # RiskConfig
+    stops.py                 # structural stop with ATR floor
+    reward.py                 # target selection, R:R computation/threshold
+    sizing.py                 # position sizing from account risk %
+    governor.py                # daily loss limit, consecutive-loss lockout, trade cap, cooldown
   cli.py                   # prints the watchlist
 ```
 
 ## Roadmap
 
-This scanner is stage 1 only. Planned next stages, in order:
+Scanner, signal engine, and risk engine are built (see above). Planned next
+stages, in order:
 
-1. **Signal engine** — opening-range breakout/reclaim, VWAP alignment,
-   FVG/order-block confluence (ports the logic from
-   `indicators/sniper_open_complete_signal.pine`), liquidity filter
-   (min dollar volume, max spread), market-regime filter (SPY/QQQ),
-   time-of-day filter, trade-quality scoring (only trade setups above a
-   score threshold).
-2. **Risk engine** — volatility/structure-based stops (not a fixed $ or %),
-   dynamic position sizing from risk-per-trade, daily loss limit, max
-   concurrent positions/exposure.
-3. **Backtester** — run the signal + risk engine against historical data
-   before any live data is involved.
-4. **Order manager / execution** — Alpaca order submission, fill
-   reconciliation against actual broker state, stop/target management.
-5. **Kill switch** — daily loss limit, consecutive-loss limit, data/broker
-   disconnect, abnormal spread, position-mismatch detection.
-6. **Trade database** — log every trade (ticker, entry/exit, setup, RVOL,
+1. **Backtester** — run the signal + risk engine against historical data
+   before any live/paper data is involved. Measure win rate, avg win/loss,
+   expectancy, profit factor, max drawdown, R:R, performance by time-of-day
+   and by opening-range window, and validate on out-of-sample data before
+   trusting any result.
+2. **Catalyst / market-regime / quality-scoring layers** — these need a
+   news/fundamentals feed and SPY/QQQ/IWM data that aren't wired up yet.
+   Only add once the core signal+risk pipeline has backtested edge; don't
+   let a scoring system launder a strategy that doesn't otherwise work.
+3. **Order manager / execution** — broker-agnostic interface (paper and live
+   brokers implement the same interface so switching brokers never touches
+   strategy code), fill reconciliation against actual broker state,
+   stop/target management. Hard `PAPER_MODE` gate: the program only holds
+   paper credentials while `PAPER_MODE=true`; switching to live requires an
+   explicit config change to separate live credentials — never developed
+   against live credentials. Before any live order reaches the broker, it
+   passes signal validity → liquidity → spread → R:R → position size →
+   daily loss limit → trade cap → broker-position-matches-internal-state,
+   in that order; any failure blocks the order.
+4. **Kill switch** — extends the risk governor with data/broker disconnect,
+   abnormal spread, and position-mismatch detection (governor already
+   covers daily loss limit, consecutive losses, trade cap, cooldown).
+5. **Trade database** — log every trade (ticker, entry/exit, setup, RVOL,
    float, VWAP distance, spread, slippage, P/L) to evaluate which
    characteristics actually produce edge.
-7. **Dashboard** — live status, watchlist, open positions, kill switch.
-8. Paper trading, then a small live account, then scale gradually.
+6. **Dashboard** — live status, watchlist, open positions, kill switch.
+7. Paper trading (Alpaca), then a small live account, then scale gradually
+   only once live execution data confirms the backtest/paper results.
