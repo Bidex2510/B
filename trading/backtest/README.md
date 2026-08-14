@@ -62,9 +62,8 @@ runs `run_backtest` once per symbol and aggregates into a `PortfolioBacktestResu
 (`.trades`, `.total_pnl`, `.results_by_symbol`). **Each symbol gets its own
 independent equity curve and risk governor**, as if trading it with
 separately allocated capital — this does not model one shared account
-risking capital across concurrently-traded symbols. True portfolio-level
-simulation (one risk governor and equity curve shared across symbols each
-day) needs bar-by-bar interleaving across symbols and isn't built yet.
+risking capital across concurrently-traded symbols. See "Shared-capital
+portfolio simulation" below for the version that does.
 
 `trading.backtest.validation.run_out_of_sample_validation(symbols, trading_days, data_source, config, train_pct, validate_pct)`
 splits `trading_days` via `split_trading_days` and runs `run_backtest_many`
@@ -77,6 +76,28 @@ would mid-split.
 
 A strategy that looks strong in `train` and falls apart in `validate`/`test`
 was curve-fit, not unlucky — don't take that result to paper trading.
+
+## Shared-capital portfolio simulation
+
+`trading.backtest.portfolio_simulator.run_portfolio_day(session_candles_by_symbol, config, levels_by_symbol, governor)`
+is the true portfolio version: **one** `RiskGovernor` and **one** equity
+value shared across every symbol traded that day, with candles interleaved
+bar-by-bar in chronological order across symbols (not one symbol's whole day
+at a time). A trade cap, daily loss limit, or cooldown triggered by one
+symbol blocks new entries in every other symbol for the rest of that
+governor's lifetime — exactly like a real account, and unlike
+`portfolio.run_backtest_many`'s independent-per-symbol governors. Verified
+with a test that runs the identical two-symbol setup both ways: the shared
+governor produces one trade where the independent-governor version produces
+two.
+
+Requires every symbol's candle list for the day to be the same length,
+aligned to the same time index — no gap-filling for halts or thin liquidity.
+
+`trading.backtest.shared_portfolio.run_shared_portfolio_backtest(symbols, trading_days, data_source, config)`
+is the multi-day version: compounds the one shared equity curve day to day,
+resets the governor each session, and drops any symbol whose candle count
+doesn't match the rest for a given day rather than raising.
 
 ## What it does not do yet
 

@@ -19,9 +19,12 @@ Python trading system for small-cap U.S. equities. Currently implements:
   chronological range of days for one symbol, compounding account equity day
   to day while resetting the risk governor each session, with real
   `DayLevels` built from premarket/prior-day candles. Loops across a
-  watchlist of symbols (each with its own independent equity/governor — not
-  yet a single shared-capital portfolio) and runs a chronological
-  train/validate/test out-of-sample validation report in one call. See
+  watchlist of symbols with independent per-symbol equity/governors and runs
+  a chronological train/validate/test out-of-sample validation report in one
+  call — or, for a true shared-capital portfolio, interleaves candles across
+  symbols bar-by-bar against ONE risk governor and ONE equity curve, so a
+  trade cap/daily loss limit/cooldown from one symbol blocks new entries in
+  every other symbol for the rest of that session. See
   `trading/backtest/README.md`.
 - **Manual watchlist** (`trading/watchlist.py`) — add/remove tickers you want
   tracked regardless of whether they pass the scanner's filters.
@@ -141,8 +144,10 @@ trading/
     levels_builder.py            # DayLevels from real premarket/prior-day candles
     orchestrator.py               # run_day across a date range, compounding equity
     period_split.py                # chronological train/validate/test splitting
-    portfolio.py                    # run_backtest_many: loop across a symbol watchlist
+    portfolio.py                    # run_backtest_many: independent-equity loop across a watchlist
     validation.py                    # out-of-sample train/validate/test report
+    portfolio_simulator.py            # run_portfolio_day: shared-capital, one governor across symbols
+    shared_portfolio.py                # multi-day version of the shared-capital simulation
   watchlist.py             # manually curated tickers (add/remove/list), local JSON state
   cli.py                   # scan + watch add/remove/list
 ```
@@ -150,19 +155,15 @@ trading/
 ## Roadmap
 
 Scanner, signal engine, risk engine, a multi-day/multi-symbol backtester
-with an out-of-sample validation report, and a manual watchlist are built
-(see above). Planned next stages, in order:
+(both independent-per-symbol and true shared-capital variants) with an
+out-of-sample validation report, and a manual watchlist are built (see
+above). Planned next stages, in order:
 
-1. **True portfolio-level backtest simulation** — one shared risk governor
-   and equity curve across concurrently-traded symbols (today each symbol
-   in `run_backtest_many` gets independent capital), which needs bar-by-bar
-   interleaving of candles across symbols rather than running each symbol's
-   full history separately. See `trading/backtest/README.md`.
-2. **Catalyst / market-regime / quality-scoring layers** — these need a
+1. **Catalyst / market-regime / quality-scoring layers** — these need a
    news/fundamentals feed and SPY/QQQ/IWM data that aren't wired up yet.
    Only add once the core signal+risk pipeline has backtested edge; don't
    let a scoring system launder a strategy that doesn't otherwise work.
-3. **Order manager / execution** — broker-agnostic interface (paper and live
+2. **Order manager / execution** — broker-agnostic interface (paper and live
    brokers implement the same interface so switching brokers never touches
    strategy code), fill reconciliation against actual broker state,
    stop/target management. Hard `PAPER_MODE` gate: the program only holds
@@ -172,12 +173,12 @@ with an out-of-sample validation report, and a manual watchlist are built
    passes signal validity → liquidity → spread → R:R → position size →
    daily loss limit → trade cap → broker-position-matches-internal-state,
    in that order; any failure blocks the order.
-4. **Kill switch** — extends the risk governor with data/broker disconnect,
+3. **Kill switch** — extends the risk governor with data/broker disconnect,
    abnormal spread, and position-mismatch detection (governor already
    covers daily loss limit, consecutive losses, trade cap, cooldown).
-5. **Trade database** — log every trade (ticker, entry/exit, setup, RVOL,
+4. **Trade database** — log every trade (ticker, entry/exit, setup, RVOL,
    float, VWAP distance, spread, slippage, P/L) to evaluate which
    characteristics actually produce edge.
-6. **Dashboard** — live status, watchlist, open positions, kill switch.
-7. Paper trading (Alpaca), then a small live account, then scale gradually
+5. **Dashboard** — live status, watchlist, open positions, kill switch.
+6. Paper trading (Alpaca), then a small live account, then scale gradually
    only once live execution data confirms the backtest/paper results.

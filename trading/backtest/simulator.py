@@ -25,13 +25,13 @@ from trading.signals.levels import opening_range
 from trading.signals.models import Candle, Direction
 
 
-def _check_fill(direction: Direction, entry_price: float, candle: Candle) -> bool:
+def check_fill(direction: Direction, entry_price: float, candle: Candle) -> bool:
     if direction == Direction.LONG:
         return candle.low <= entry_price
     return candle.high >= entry_price
 
 
-def _check_exit(direction: Direction, stop_price: float, target_price: float, candle: Candle) -> Optional[tuple]:
+def check_exit(direction: Direction, stop_price: float, target_price: float, candle: Candle) -> Optional[tuple]:
     if direction == Direction.LONG:
         if candle.low <= stop_price:
             return stop_price, "stop"
@@ -69,7 +69,7 @@ def run_day(
         current = session_candles[i]
 
         if open_trade is not None:
-            exit_info = _check_exit(open_trade["direction"], open_trade["stop_price"], open_trade["target_price"], current)
+            exit_info = check_exit(open_trade["direction"], open_trade["stop_price"], open_trade["target_price"], current)
             if exit_info is not None:
                 exit_price, exit_reason = exit_info
                 trade = Trade(
@@ -91,7 +91,7 @@ def run_day(
             continue
 
         if pending_signal is not None:
-            if _check_fill(pending_signal["direction"], pending_signal["entry_price"], current):
+            if check_fill(pending_signal["direction"], pending_signal["entry_price"], current):
                 open_trade = {**pending_signal, "entry_time": current.time}
                 pending_signal = None
             elif i - pending_signal["placed_at_index"] >= max_fill_wait_bars:
